@@ -12,9 +12,9 @@ import "../src/SimpleEventFactory.sol";
  */
 contract QuickCheck is Script {
     // Correct deployed addresses
-    address constant ACCESS_CONTROL = 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6;
-    address constant EVENT_FACTORY = 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318;
-    address constant IDRX_TOKEN = 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853;
+    address constant ACCESS_CONTROL = 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512;
+    address constant EVENT_FACTORY = 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0;
+    address constant IDRX_TOKEN = 0x5FbDB2315678afecb367f032d93F642f64180aa3;
 
     // Test wallets
     address constant ORGANIZER_1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;

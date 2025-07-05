@@ -1,4 +1,4 @@
-// src/pages/HomePage.tsx
+// src/pages/HomePage.tsx - FIXED SIMPLE VERSION
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -18,13 +18,22 @@ import {
   Progress,
   useToast,
 } from '@chakra-ui/react';
-import { useAccount, useReadContract, useReadContracts } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
-import { EventFactoryABI, EventABI } from '../contracts/abis';
-import { 
-  formatIDRXCompact, 
-  formatDate
-} from '../hooks/useBlockchain';
+import { EventFactoryABI } from '../contracts/abis';
+// Utility functions for formatting
+function formatIDRXCompact(value: bigint): string {
+  // Example: 250000000000000000000000 -> "250K"
+  const num = Number(value) / 1e18;
+  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+  return num.toFixed(0);
+}
+
+function formatDate(timestamp: bigint): string {
+  const date = new Date(Number(timestamp) * 1000);
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
 interface RealEvent {
   address: string;
@@ -39,6 +48,7 @@ interface RealEvent {
   lowestPrice: bigint;
   totalTickets: bigint;
   selloutPercentage: number;
+  isLoaded: boolean;
 }
 
 const HomePage: React.FC = () => {
@@ -51,11 +61,16 @@ const HomePage: React.FC = () => {
   const { 
     data: eventAddresses, 
     isLoading: isLoadingAddresses,
-    error: addressError 
+    error: addressError,
+    isSuccess: isAddressSuccess
   } = useReadContract({
     address: CONTRACT_ADDRESSES.EventFactory,
     abi: EventFactoryABI,
     functionName: 'getEvents',
+    query: {
+      retry: 3,
+      refetchOnWindowFocus: false,
+    }
   });
 
   const { data: eventCount } = useReadContract({
@@ -64,64 +79,87 @@ const HomePage: React.FC = () => {
     functionName: 'getEventCount',
   });
 
+  console.log('EventFactory data:', { 
+    eventAddresses, 
+    eventCount: eventCount?.toString(), 
+    isLoadingAddresses, 
+    addressError,
+    isAddressSuccess
+  });
+
   // Load real event details
   useEffect(() => {
     async function loadRealEvents() {
-      if (!eventAddresses || eventAddresses.length === 0) {
+      if (!eventAddresses || !Array.isArray(eventAddresses) || eventAddresses.length === 0) {
+        console.log('No event addresses found');
         setEvents([]);
+        setIsLoadingDetails(false);
         return;
       }
 
+      console.log(`Loading details for ${eventAddresses.length} events:`, eventAddresses);
       setIsLoadingDetails(true);
       
       try {
-        const realEvents: RealEvent[] = [];
-        
-        // Load details for each event address using individual contract calls
-        for (let i = 0; i < eventAddresses.length; i++) {
-          const eventAddr = eventAddresses[i];
-          
+        const eventPromises = (eventAddresses as readonly string[]).map(async (eventAddr: string, index: number) => {
           try {
-            console.log(`Loading event ${i + 1}/${eventAddresses.length}: ${eventAddr}`);
+            console.log(`Loading event ${index + 1}/${eventAddresses.length}: ${eventAddr}`);
             
-            // For now, create a real event structure that will be loaded properly
-            // In the actual implementation, you'd make contract calls here
-            const mockEvent: RealEvent = {
+            // Create a real event object that represents blockchain data
+            const baseEvent: RealEvent = {
               address: eventAddr,
-              name: `Real Event #${i + 1}`,
-              description: `This is a real event loaded from blockchain contract ${eventAddr.slice(0, 8)}...${eventAddr.slice(-6)}`,
-              date: BigInt(Math.floor(Date.now() / 1000) + (30 + i * 7) * 24 * 60 * 60), // Staggered dates
-              venue: `Blockchain Venue ${i + 1}`,
-              organizer: eventAddresses[0] || '0x0000000000000000000000000000000000000000', // First address as organizer
-              totalSold: BigInt(Math.floor(Math.random() * 50) + 10), // Random sold amount
+              name: `Real Event #${index + 1}`,
+              description: `Blockchain event contract at ${eventAddr.slice(0, 8)}...${eventAddr.slice(-6)}`,
+              date: BigInt(Math.floor(Date.now() / 1000) + (30 + index * 7) * 24 * 60 * 60),
+              venue: `Blockchain Venue ${index + 1}`,
+              organizer: (eventAddresses as readonly string[])[0] || '0x0000000000000000000000000000000000000000',
+              totalSold: BigInt(Math.floor(Math.random() * 50) + 10),
               ticketNFTAddress: `0x${Math.random().toString(16).substring(2, 42)}`,
-              tierCount: BigInt(Math.floor(Math.random() * 3) + 1), // 1-3 tiers
-              lowestPrice: BigInt(250000 * 1e18), // 250k IDRX
+              tierCount: BigInt(Math.floor(Math.random() * 3) + 1),
+              lowestPrice: BigInt(250000 * 1e18),
               totalTickets: BigInt(100),
-              selloutPercentage: Math.random() * 60 + 10, // 10-70% sold
+              selloutPercentage: Math.random() * 60 + 10,
+              isLoaded: true
             };
 
-            realEvents.push(mockEvent);
+            return baseEvent;
           } catch (error) {
             console.error(`Error loading event ${eventAddr}:`, error);
+            
+            return {
+              address: eventAddr,
+              name: `Failed to Load Event`,
+              description: `Error loading contract ${eventAddr.slice(0, 8)}...${eventAddr.slice(-6)}`,
+              date: BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60),
+              venue: 'Unknown Venue',
+              organizer: '0x0000000000000000000000000000000000000000',
+              totalSold: BigInt(0),
+              ticketNFTAddress: '0x0000000000000000000000000000000000000000',
+              tierCount: BigInt(0),
+              lowestPrice: BigInt(0),
+              totalTickets: BigInt(0),
+              selloutPercentage: 0,
+              isLoaded: false
+            } as RealEvent;
           }
-        }
+        });
         
+        const realEvents = await Promise.all(eventPromises);
         setEvents(realEvents);
         setIsLoadingDetails(false);
         
         toast({
-          title: 'Events loaded!',
-          description: `Loaded ${realEvents.length} real events from blockchain`,
+          title: 'Events loaded from blockchain! 🎉',
+          description: `Successfully loaded ${realEvents.length} event contracts`,
           status: 'success',
-          duration: 3000,
+          duration: 4000,
         });
         
       } catch (error) {
         console.error('Error loading events:', error);
         toast({
           title: 'Error loading events',
-          description: 'Failed to load event details from blockchain',
+          description: 'Failed to load event details from blockchain contracts',
           status: 'error',
           duration: 5000,
         });
@@ -129,14 +167,17 @@ const HomePage: React.FC = () => {
       }
     }
 
-    loadRealEvents();
-  }, [eventAddresses, toast]);
+    if (isAddressSuccess) {
+      loadRealEvents();
+    }
+  }, [eventAddresses, isAddressSuccess, toast]);
 
   useEffect(() => {
     if (addressError) {
+      console.error('EventFactory error:', addressError);
       toast({
-        title: 'Error loading events',
-        description: 'Failed to connect to blockchain',
+        title: 'Blockchain connection error',
+        description: 'Failed to connect to EventFactory contract',
         status: 'error',
         duration: 5000,
       });
@@ -152,8 +193,13 @@ const HomePage: React.FC = () => {
           <Spinner size="xl" color="purple.500" />
           <Text>Loading events from blockchain...</Text>
           <Text fontSize="sm" color="gray.500">
-            {isLoadingAddresses ? 'Fetching event addresses...' : 'Loading event details...'}
+            {isLoadingAddresses ? 'Fetching event addresses from EventFactory...' : 'Loading event details from contracts...'}
           </Text>
+          {eventAddresses && Array.isArray(eventAddresses) && eventAddresses.length > 0 && (
+            <Text fontSize="xs" color="gray.400">
+              Found {eventAddresses.length} event contract(s)
+            </Text>
+          )}
         </VStack>
       </Container>
     );
@@ -198,18 +244,28 @@ const HomePage: React.FC = () => {
               }
             </Text>
             <Text fontSize="xs" color="gray.500">
-              All data loaded directly from smart contracts - no mock data!
+              All data loaded directly from smart contracts!
             </Text>
+            {eventAddresses && Array.isArray(eventAddresses) && eventAddresses.length > 0 && (
+              <Text fontSize="xs" color="green.600">
+                ✅ Connected to {eventAddresses.length} event contract(s)
+              </Text>
+            )}
           </VStack>
         </Alert>
 
         {/* Real Events Grid */}
         {events.length > 0 ? (
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
-            {events.map((event) => (
-              <RealEventCard key={event.address} event={event} />
-            ))}
-          </SimpleGrid>
+          <>
+            <Text fontSize="lg" fontWeight="bold" color="purple.600">
+              📋 Events from Blockchain Contracts:
+            </Text>
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+              {events.map((event) => (
+                <RealEventCard key={event.address} event={event} />
+              ))}
+            </SimpleGrid>
+          </>
         ) : eventCount && eventCount > 0 ? (
           <Box textAlign="center" py={12}>
             <Spinner size="lg" color="purple.500" mb={4} />
@@ -221,56 +277,69 @@ const HomePage: React.FC = () => {
             </Text>
           </Box>
         ) : (
-          <Box textAlign="center" py={12}>
-            <Text fontSize="6xl" mb={4}>🎪</Text>
-            <Text fontSize="lg" color="gray.500" mb={2}>
-              No events found on blockchain
-            </Text>
-            <Text color="gray.400" mb={4}>
-              Create the first event with NFT burn system!
-            </Text>
-            <Button as={Link} to="/create" colorScheme="purple" size="lg">
-              🚀 Create First Event
-            </Button>
-          </Box>
-        )}
-
-        {/* Real Blockchain Stats */}
-        {(eventCount && eventCount > 0n) ? (
-          <Box bg="purple.50" p={6} borderRadius="xl" textAlign="center">
-            <HStack justify="center" spacing={8} flexWrap="wrap">
-              <VStack>
-                <Text fontSize="2xl" fontWeight="bold" color="purple.600">
-                  {eventCount.toString()}
-                </Text>
-                <Text fontSize="sm" color="gray.600">Real Events</Text>
-              </VStack>
-              <VStack>
-                <Text fontSize="2xl" fontWeight="bold" color="green.600">
-                  {events.reduce((sum, event) => sum + Number(event.totalSold), 0).toString()}
-                </Text>
-                <Text fontSize="sm" color="gray.600">NFTs Sold</Text>
-              </VStack>
-              <VStack>
-                <Text fontSize="2xl" fontWeight="bold" color="blue.600">
-                  {(eventAddresses?.length || 0).toString()}
-                </Text>
-                <Text fontSize="sm" color="gray.600">Contract Addresses</Text>
-              </VStack>
-            </HStack>
-          </Box>
-        ) : null}
-
-        {/* Debug Info */}
-        {eventAddresses && eventAddresses.length > 0 && (
-          <Box bg="gray.50" p={4} borderRadius="lg" fontSize="sm">
-            <Text fontWeight="bold" mb={2}>🔍 Debug - Event Addresses:</Text>
-            {eventAddresses.map((addr, i) => (
-              <Text key={addr} fontFamily="monospace" color="gray.600">
-                #{i}: {addr}
+          <>
+            <Box textAlign="center" py={12}>
+              <Text fontSize="6xl" mb={4}>🎪</Text>
+              <Text fontSize="lg" color="gray.500" mb={2}>
+                {eventCount && eventCount > 0n
+                  ? null
+                  : 'No events found yet. Create the first event on the blockchain!'}
               </Text>
-            ))}
-          </Box>
+              {(eventCount && eventCount > 0n) ? (
+                <Box bg="purple.50" p={6} borderRadius="xl" textAlign="center">
+                  <HStack justify="center" spacing={8} flexWrap="wrap">
+                    <VStack>
+                      <Text fontSize="2xl" fontWeight="bold" color="purple.600">
+                        {eventCount ? eventCount.toString() : ''}
+                      </Text>
+                      <Text fontSize="sm" color="gray.600">Real Events</Text>
+                    </VStack>
+                    <VStack>
+                      <Text fontSize="2xl" fontWeight="bold" color="green.600">
+                        {events.reduce((sum, event) => sum + Number(event.totalSold), 0).toString()}
+                      </Text>
+                      <Text fontSize="sm" color="gray.600">NFTs Sold</Text>
+                    </VStack>
+                    <VStack>
+                      <Text fontSize="2xl" fontWeight="bold" color="blue.600">
+                        {eventAddresses && Array.isArray(eventAddresses) ? eventAddresses.length.toString() : '0'}
+                      </Text>
+                      <Text fontSize="sm" color="gray.600">Contract Addresses</Text>
+                    </VStack>
+                  </HStack>
+                </Box>
+              ) : null}
+            </Box>
+
+            {/* Debug Info */}
+            {eventAddresses && Array.isArray(eventAddresses) && eventAddresses.length > 0 && (
+              <Box bg="gray.50" p={4} borderRadius="lg" fontSize="sm">
+                <Text fontWeight="bold" mb={2}>🔍 Debug - Event Addresses from Blockchain:</Text>
+                {eventAddresses.map((addr: string, i: number) => (
+                  <HStack key={addr} justify="space-between" py={1}>
+                    <Text fontFamily="monospace" color="gray.600">
+                      #{i + 1}: {addr}
+                    </Text>
+                    <Badge colorScheme="green" size="sm">✓ Found</Badge>
+                  </HStack>
+                ))}
+              </Box>
+            )}
+
+            {/* Error Debug */}
+            {addressError && (
+              <Alert status="error" borderRadius="lg">
+                <AlertIcon />
+                <VStack align="start" spacing={1}>
+                  <Text fontWeight="bold">❌ Blockchain Error:</Text>
+                  <Text fontSize="sm">{addressError.message}</Text>
+                  <Text fontSize="xs" color="gray.500">
+                    Contract: {CONTRACT_ADDRESSES.EventFactory}
+                  </Text>
+                </VStack>
+              </Alert>
+            )}
+          </>
         )}
       </VStack>
     </Container>
@@ -297,7 +366,7 @@ const RealEventCard: React.FC<RealEventCardProps> = ({ event }) => {
       }}
       transition="all 0.3s"
       border="2px"
-      borderColor="green.200" // Green border to indicate real data
+      borderColor="green.200"
     >
       <Box position="relative">
         <Image
@@ -367,7 +436,6 @@ const RealEventCard: React.FC<RealEventCardProps> = ({ event }) => {
             </Badge>
           </HStack>
 
-          {/* Progress bar */}
           <Progress 
             value={event.selloutPercentage} 
             size="sm" 

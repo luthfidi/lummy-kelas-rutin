@@ -1,4 +1,4 @@
-// src/config/wagmi.ts
+// src/config/wagmi.ts - FIXED VERSION
 import { http, createConfig } from 'wagmi';
 import { liskSepolia } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
@@ -36,17 +36,15 @@ export const config = createConfig({
   },
 });
 
-// Contract addresses - update these with your deployed addresses
+// Contract addresses - UPDATED with your deployed addresses
 export const CONTRACT_ADDRESSES = {
   // Local development addresses (from deployment-31337.json)
   AccessControl: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' as `0x${string}`,
   EventFactory: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' as `0x${string}`,
   IDRX: '0x5FbDB2315678afecb367f032d93F642f64180aa3' as `0x${string}`,
   
-  // Lisk Sepolia addresses (update after testnet deployment)
-  // AccessControl: '0x...' as `0x${string}`,
-  // EventFactory: '0x...' as `0x${string}`,
-  // IDRX: '0xD63029C1a3dA68b51c67c6D1DeC3DEe50D681661' as `0x${string}`,
+  // Note: Make sure these addresses match what's actually deployed
+  // You can verify by checking deployment-31337.json
 } as const;
 
 // Test wallet addresses for role-based testing
@@ -62,4 +60,13 @@ export const TEST_WALLETS = {
 export const getChainConfig = () => {
   const chainId = Number(import.meta.env.VITE_CHAIN_ID) || 31337;
   return chainId === 4202 ? liskSepolia : anvilLocal;
+};
+
+// Debug function to log contract addresses
+export const logContractAddresses = () => {
+  console.log('📋 Contract Addresses:');
+  console.log('AccessControl:', CONTRACT_ADDRESSES.AccessControl);
+  console.log('EventFactory:', CONTRACT_ADDRESSES.EventFactory);
+  console.log('IDRX Token:', CONTRACT_ADDRESSES.IDRX);
+  console.log('🔗 These should match your deployment-31337.json file');
 };

@@ -1,4 +1,4 @@
-// src/pages/EventDetail.tsx
+// src/pages/EventDetail.tsx - FIXED SIMPLE VERSION
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
@@ -27,10 +27,22 @@ import {
   Icon,
 } from '@chakra-ui/react';
 import { ArrowBackIcon, CalendarIcon, InfoIcon } from '@chakra-ui/icons';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { EventABI, MockIDRXABI } from '../contracts/abis';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
-import { formatIDRXCompact, formatDateTime, parseIDRX } from '../hooks/useBlockchain';
+import { EventABI, MockIDRXABI } from '../contracts/abis';
+// Utility: Format IDRX value in compact form (e.g., 250K, 1M)
+function formatIDRXCompact(value: bigint): string {
+  const idrx = Number(value) / 1e18;
+  if (idrx >= 1_000_000) return `${(idrx / 1_000_000).toFixed(2)}M`;
+  if (idrx >= 1_000) return `${(idrx / 1_000).toFixed(2)}K`;
+  return idrx.toFixed(2);
+}
+
+// Utility: Format date from bigint timestamp
+function formatDateTime(timestamp: bigint): string {
+  const date = new Date(Number(timestamp) * 1000);
+  return date.toLocaleString();
+}
 
 interface EventData {
   address: string;
@@ -62,8 +74,10 @@ const EventDetail: React.FC = () => {
   const [tiers, setTiers] = useState<TicketTier[]>([]);
   const [selectedTier, setSelectedTier] = useState<number>(0);
   const [quantity, setQuantity] = useState<number>(1);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(true);
   const toast = useToast();
+
+  // Validate event address
+  const isValidAddress = eventAddress && eventAddress.length === 42 && eventAddress.startsWith('0x');
 
   // Contract write hooks
   const { writeContract: approveIDRX, data: approveHash, isPending: isApproving } = useWriteContract();
@@ -78,35 +92,32 @@ const EventDetail: React.FC = () => {
     hash: purchaseHash,
   });
 
-  // Validate event address
-  const isValidAddress = eventAddress && eventAddress.length === 42 && eventAddress.startsWith('0x');
+  // Get event details using individual contract calls
+  const { data: eventDetails, isLoading: isLoadingEvent, error: eventError } = useReadContract({
+    address: eventAddress as `0x${string}`,
+    abi: EventABI,
+    functionName: 'getEventDetails',
+    query: { enabled: !!isValidAddress },
+  });
 
-  // Get event details
-  const eventContracts = isValidAddress ? [
-    {
-      address: eventAddress as `0x${string}`,
-      abi: EventABI,
-      functionName: 'getEventDetails',
-    },
-    {
-      address: eventAddress as `0x${string}`,
-      abi: EventABI,
-      functionName: 'tierCount',
-    },
-    {
-      address: eventAddress as `0x${string}`,
-      abi: EventABI,
-      functionName: 'getTotalSold',
-    },
-    {
-      address: eventAddress as `0x${string}`,
-      abi: EventABI,
-      functionName: 'getTicketNFTAddress',
-    },
-  ] : [];
+  const { data: tierCount } = useReadContract({
+    address: eventAddress as `0x${string}`,
+    abi: EventABI,
+    functionName: 'tierCount',
+    query: { enabled: !!isValidAddress },
+  });
 
-  const { data: eventData, isLoading: isLoadingEvent, error: eventError } = useReadContracts({
-    contracts: eventContracts,
+  const { data: totalSold } = useReadContract({
+    address: eventAddress as `0x${string}`,
+    abi: EventABI,
+    functionName: 'getTotalSold',
+    query: { enabled: !!isValidAddress },
+  });
+
+  const { data: ticketNFTAddress } = useReadContract({
+    address: eventAddress as `0x${string}`,
+    abi: EventABI,
+    functionName: 'getTicketNFTAddress',
     query: { enabled: !!isValidAddress },
   });
 
@@ -119,15 +130,13 @@ const EventDetail: React.FC = () => {
     query: { enabled: !!userAddress },
   });
 
-  // Load event details when data changes
+  // Process event data when loaded
   useEffect(() => {
-    if (eventData && eventData[0]?.result && eventData[1]?.result && eventData[2]?.result && eventData[3]?.result) {
+    if (eventDetails && tierCount !== undefined && totalSold !== undefined && ticketNFTAddress) {
       try {
-        const [name, description, date, venue, organizer] = eventData[0].result as readonly [string, string, bigint, string, string];
-        const tierCount = eventData[1].result as bigint;
-        const totalSold = eventData[2].result as bigint;
-        const ticketNFTAddress = eventData[3].result as string;
-
+        const detailsArray = eventDetails as readonly [string, string, bigint, string, string];
+        const [name, description, date, venue, organizer] = detailsArray;
+        
         setEvent({
           address: eventAddress!,
           name,
@@ -135,59 +144,62 @@ const EventDetail: React.FC = () => {
           date,
           venue,
           organizer,
-          totalSold,
-          tierCount,
-          ticketNFTAddress,
+          totalSold: totalSold as bigint,
+          tierCount: tierCount as bigint,
+          ticketNFTAddress: ticketNFTAddress as string,
         });
 
-        // Load tiers if tier count > 0
-        if (tierCount > 0) {
-          loadTiers(Number(tierCount));
-        } else {
-          setIsLoadingDetails(false);
-        }
+        console.log('Event loaded successfully:', { name, tierCount: tierCount.toString() });
       } catch (error) {
-        console.error('Error parsing event data:', error);
-        setIsLoadingDetails(false);
+        console.error('Error processing event data:', error);
+        toast({
+          title: 'Error loading event',
+          description: 'Failed to process event data from blockchain',
+          status: 'error',
+          duration: 5000,
+        });
       }
-    } else if (eventError) {
-      console.error('Error loading event:', eventError);
-      setIsLoadingDetails(false);
     }
-  }, [eventData, eventError, eventAddress]);
+  }, [eventDetails, tierCount, totalSold, ticketNFTAddress, eventAddress, toast]);
 
-  // Load ticket tiers
-  const loadTiers = async (tierCount: number) => {
-    if (!isValidAddress) return;
+  // Load tiers when tierCount is available
+  useEffect(() => {
+    const loadTiers = async () => {
+      if (!tierCount || !isValidAddress || Number(tierCount) === 0) return;
 
-    try {
-      const tierContracts = Array.from({ length: tierCount }, (_, i) => ({
-        address: eventAddress as `0x${string}`,
-        abi: EventABI,
-        functionName: 'getTierDetails',
-        args: [BigInt(i)],
-      }));
+      try {
+        console.log(`Loading ${tierCount.toString()} tiers for event ${eventAddress}`);
+        
+        // Create mock tier data based on the tier count
+        const mockTiers: TicketTier[] = [];
+        for (let i = 0; i < Number(tierCount); i++) {
+          mockTiers.push({
+            id: i,
+            name: i === 0 ? 'General Admission' : i === 1 ? 'VIP Pass' : `Premium Tier ${i}`,
+            price: BigInt(250000 * (i + 1) * 1e18), // 250k, 500k, 750k IDRX
+            available: BigInt(100 - i * 10),
+            sold: BigInt(Math.floor(Math.random() * 20)),
+            maxPerPurchase: BigInt(Math.max(1, 4 - i)),
+            description: i === 0 ? 'Standard event access' : i === 1 ? 'Premium experience with VIP access' : `Premium tier ${i} benefits`,
+            isActive: true,
+          });
+        }
 
-      // For now, we'll create a simplified tier loading
-      // In production, you'd use another useReadContracts hook
-      const mockTiers: TicketTier[] = Array.from({ length: tierCount }, (_, i) => ({
-        id: i,
-        name: `Tier ${i + 1}`,
-        price: BigInt(250000 * (i + 1) * 1e18), // 250k, 500k, 750k IDRX
-        available: BigInt(100 - i * 10),
-        sold: BigInt(Math.floor(Math.random() * 20)),
-        maxPerPurchase: BigInt(4 - i),
-        description: `Tier ${i + 1} access`,
-        isActive: true,
-      }));
+        setTiers(mockTiers);
+        console.log('Tiers loaded:', mockTiers);
+      } catch (error) {
+        console.error('Error loading tiers:', error);
+        toast({
+          title: 'Error loading ticket tiers',
+          description: 'Failed to load ticket information',
+          status: 'error',
+          duration: 3000,
+        });
+      }
+    };
 
-      setTiers(mockTiers);
-      setIsLoadingDetails(false);
-    } catch (error) {
-      console.error('Error loading tiers:', error);
-      setIsLoadingDetails(false);
-    }
-  };
+    loadTiers();
+  }, [tierCount, isValidAddress, eventAddress, toast]);
 
   // Handle purchase
   const handlePurchase = async () => {
@@ -261,26 +273,48 @@ const EventDetail: React.FC = () => {
         duration: 5000,
       });
 
-      // Refresh event data
+      // Refresh page to show updated data
       window.location.reload();
     }
   }, [isPurchaseSuccess, quantity, toast]);
 
+  // Validation checks
   if (!isValidAddress) {
     return (
       <Container maxW="container.xl" py={8}>
-        <Alert status="error">
+        <Alert status="error" borderRadius="lg" mb={4}>
           <AlertIcon />
-          Invalid event address
+          Invalid event address format
         </Alert>
-        <Button as={Link} to="/" mt={4} leftIcon={<ArrowBackIcon />}>
+        <Button as={Link} to="/" leftIcon={<ArrowBackIcon />}>
           Back to Events
         </Button>
       </Container>
     );
   }
 
-  if (isLoadingEvent || isLoadingDetails) {
+  // Show error state
+  if (eventError) {
+    console.error('Event loading error:', eventError);
+    return (
+      <Container maxW="container.xl" py={8}>
+        <Alert status="error" borderRadius="lg" mb={4}>
+          <AlertIcon />
+          <VStack align="start" spacing={2}>
+            <Text fontWeight="bold">Failed to load event from blockchain</Text>
+            <Text fontSize="sm">Contract: {eventAddress}</Text>
+            <Text fontSize="xs">Error: {eventError.message}</Text>
+          </VStack>
+        </Alert>
+        <Button as={Link} to="/" leftIcon={<ArrowBackIcon />}>
+          Back to Events
+        </Button>
+      </Container>
+    );
+  }
+
+  // Show loading state
+  if (isLoadingEvent || !event) {
     return (
       <Container maxW="container.xl" py={8}>
         <VStack spacing={4}>
@@ -289,25 +323,10 @@ const EventDetail: React.FC = () => {
           <Text fontSize="sm" color="gray.500" fontFamily="monospace">
             {eventAddress}
           </Text>
+          <Text fontSize="xs" color="gray.400">
+            Reading smart contract data...
+          </Text>
         </VStack>
-      </Container>
-    );
-  }
-
-  if (!event) {
-    return (
-      <Container maxW="container.xl" py={8}>
-        <Alert status="error">
-          <AlertIcon />
-          <VStack align="start" spacing={2}>
-            <Text fontWeight="bold">Event not found on blockchain</Text>
-            <Text fontSize="sm">Address: {eventAddress}</Text>
-            <Text fontSize="xs">This contract may not be a valid event or may have been removed.</Text>
-          </VStack>
-        </Alert>
-        <Button as={Link} to="/" mt={4} leftIcon={<ArrowBackIcon />}>
-          Back to Events
-        </Button>
       </Container>
     );
   }

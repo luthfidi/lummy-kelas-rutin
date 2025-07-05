@@ -1,57 +1,4 @@
-// src/contracts/abis.ts - All contract ABIs in one file
-
-// AccessControl ABI
-export const AccessControlABI = [
-  {
-    type: "constructor",
-    inputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "addOrganizer",
-    inputs: [{ name: "organizer", type: "address", internalType: "address" }],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "addStaff",
-    inputs: [{ name: "staff", type: "address", internalType: "address" }],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "authorizedOrganizers",
-    inputs: [{ name: "", type: "address", internalType: "address" }],
-    outputs: [{ name: "", type: "bool", internalType: "bool" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "getOrganizers",
-    inputs: [],
-    outputs: [{ name: "", type: "address[]", internalType: "address[]" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "isAuthorizedOrganizer",
-    inputs: [{ name: "organizer", type: "address", internalType: "address" }],
-    outputs: [{ name: "", type: "bool", internalType: "bool" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "owner",
-    inputs: [],
-    outputs: [{ name: "", type: "address", internalType: "address" }],
-    stateMutability: "view",
-  },
-] as const;
-
-// EventFactory ABI (using SimpleEventFactory based on your code)
+// src/contracts/abis.ts - COMPLETE FIXED VERSION
 export const EventFactoryABI = [
   {
     type: "constructor",
@@ -131,7 +78,6 @@ export const EventFactoryABI = [
   },
 ] as const;
 
-// Event ABI
 export const EventABI = [
   {
     type: "function",
@@ -253,128 +199,9 @@ export const EventABI = [
     ],
     stateMutability: "view",
   },
-  {
-    type: "event",
-    name: "TicketPurchased",
-    inputs: [
-      {
-        name: "buyer",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "tokenId",
-        type: "uint256",
-        indexed: true,
-        internalType: "uint256",
-      },
-      {
-        name: "tierId",
-        type: "uint256",
-        indexed: true,
-        internalType: "uint256",
-      },
-      {
-        name: "quantity",
-        type: "uint256",
-        indexed: false,
-        internalType: "uint256",
-      },
-    ],
-    anonymous: false,
-  },
 ] as const;
 
-// TicketNFT ABI
-export const TicketNFTABI = [
-  {
-    type: "function",
-    name: "balanceOf",
-    inputs: [{ name: "owner", type: "address", internalType: "address" }],
-    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "tokenOfOwnerByIndex",
-    inputs: [
-      { name: "owner", type: "address", internalType: "address" },
-      { name: "index", type: "uint256", internalType: "uint256" },
-    ],
-    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "getTicketMetadata",
-    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct ITicketNFT.TicketMetadata",
-        components: [
-          { name: "tierId", type: "uint256", internalType: "uint256" },
-          { name: "originalOwner", type: "address", internalType: "address" },
-          { name: "currentOwner", type: "address", internalType: "address" },
-          { name: "mintTimestamp", type: "uint256", internalType: "uint256" },
-          { name: "burnTimestamp", type: "uint256", internalType: "uint256" },
-          { name: "burnedBy", type: "address", internalType: "address" },
-          { name: "isUsed", type: "bool", internalType: "bool" },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "transferFrom",
-    inputs: [
-      { name: "from", type: "address", internalType: "address" },
-      { name: "to", type: "address", internalType: "address" },
-      { name: "tokenId", type: "uint256", internalType: "uint256" },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "ownerOf",
-    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
-    outputs: [{ name: "", type: "address", internalType: "address" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "isTicketValid",
-    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
-    outputs: [{ name: "", type: "bool", internalType: "bool" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "isBurned",
-    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
-    outputs: [{ name: "", type: "bool", internalType: "bool" }],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "getTicketsByOwner",
-    inputs: [{ name: "owner", type: "address", internalType: "address" }],
-    outputs: [{ name: "", type: "uint256[]", internalType: "uint256[]" }],
-    stateMutability: "view",
-  },
-] as const;
-
-// MockIDRX ABI
 export const MockIDRXABI = [
-  {
-    type: "constructor",
-    inputs: [],
-    stateMutability: "nonpayable",
-  },
   {
     type: "function",
     name: "allowance",
@@ -444,44 +271,77 @@ export const MockIDRXABI = [
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
     stateMutability: "view",
   },
+] as const;
+
+export const AccessControlABI = [
   {
-    type: "event",
-    name: "Transfer",
-    inputs: [
-      { name: "from", type: "address", indexed: true, internalType: "address" },
-      { name: "to", type: "address", indexed: true, internalType: "address" },
-      {
-        name: "value",
-        type: "uint256",
-        indexed: false,
-        internalType: "uint256",
-      },
-    ],
-    anonymous: false,
+    type: "function",
+    name: "addOrganizer",
+    inputs: [{ name: "organizer", type: "address", internalType: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    type: "event",
-    name: "Approval",
+    type: "function",
+    name: "authorizedOrganizers",
+    inputs: [{ name: "", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isAuthorizedOrganizer",
+    inputs: [{ name: "organizer", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "owner",
+    inputs: [],
+    outputs: [{ name: "", type: "address", internalType: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+export const TicketNFTABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "owner", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "ownerOf",
+    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
+    outputs: [{ name: "", type: "address", internalType: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transferFrom",
     inputs: [
-      {
-        name: "owner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "spender",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "value",
-        type: "uint256",
-        indexed: false,
-        internalType: "uint256",
-      },
+      { name: "from", type: "address", internalType: "address" },
+      { name: "to", type: "address", internalType: "address" },
+      { name: "tokenId", type: "uint256", internalType: "uint256" },
     ],
-    anonymous: false,
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getTicketsByOwner",
+    inputs: [{ name: "owner", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "uint256[]", internalType: "uint256[]" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isTicketValid",
+    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "view",
   },
 ] as const;

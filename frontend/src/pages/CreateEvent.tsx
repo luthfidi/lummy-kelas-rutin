@@ -32,6 +32,7 @@ import { Link } from 'react-router-dom';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
 import { EventFactoryABI, EventABI } from '../contracts/abis';
+// TODO: Implement or import these hooks/utilities from the correct location if available
 import { useUserRole, useIsAuthorizedOrganizer, parseIDRX } from '../hooks/useBlockchain';
 
 interface TicketTier {

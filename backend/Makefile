@@ -116,11 +116,29 @@ update: ## Update dependencies
 generate-abi: ## Generate ABI files for frontend
 	@echo "Generating ABI files..."
 	@mkdir -p ../frontend/src/contracts/abi
+	
+	# Core contracts
+	@echo "📝 Extracting AccessControl ABI..."
 	jq '.abi' out/AccessControl.sol/AccessControl.json > ../frontend/src/contracts/abi/AccessControl.json
+	
+	@echo "📝 Extracting EventFactory ABI..."
 	jq '.abi' out/EventFactory.sol/EventFactory.json > ../frontend/src/contracts/abi/EventFactory.json
+	
+	@echo "📝 Extracting SimpleEventFactory ABI..."
+	jq '.abi' out/SimpleEventFactory.sol/SimpleEventFactory.json > ../frontend/src/contracts/abi/SimpleEventFactory.json
+	
+	@echo "📝 Extracting Event ABI..."
 	jq '.abi' out/Event.sol/Event.json > ../frontend/src/contracts/abi/Event.json
+	
+	@echo "📝 Extracting TicketNFT ABI..."
 	jq '.abi' out/TicketNFT.sol/TicketNFT.json > ../frontend/src/contracts/abi/TicketNFT.json
+	
+	@echo "📝 Extracting MockIDRX ABI..."
+	jq '.abi' out/MockIDRX.sol/MockIDRX.json > ../frontend/src/contracts/abi/MockIDRX.json
+	
 	@echo "✅ ABI files generated for frontend"
+	@echo "📂 Files saved to: ../frontend/src/contracts/abi/"
+	@ls -la ../frontend/src/contracts/abi/
 
 update-frontend-config: ## Update frontend contract addresses
 	@echo "Updating frontend configuration..."

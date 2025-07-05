@@ -1,4 +1,4 @@
-// src/pages/EventDetail.tsx - FIXED SIMPLE VERSION
+// src/pages/EventDetail.tsx - COMPLETE REAL BLOCKCHAIN VERSION
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
@@ -25,59 +25,69 @@ import {
   Progress,
   Spinner,
   Icon,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react';
-import { ArrowBackIcon, CalendarIcon, InfoIcon } from '@chakra-ui/icons';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { ArrowBackIcon, CalendarIcon, InfoIcon, ExternalLinkIcon } from '@chakra-ui/icons';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { 
+  useEventDetails, 
+  useEventTiers, 
+  useIDRXBalance,
+  useEventStats,
+  formatIDRXCompact, 
+  formatDateTime,
+  formatIDRX,
+  parseIDRX 
+} from '../hooks/useBlockchain';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
 import { EventABI, MockIDRXABI } from '../contracts/abis';
-// Utility: Format IDRX value in compact form (e.g., 250K, 1M)
-function formatIDRXCompact(value: bigint): string {
-  const idrx = Number(value) / 1e18;
-  if (idrx >= 1_000_000) return `${(idrx / 1_000_000).toFixed(2)}M`;
-  if (idrx >= 1_000) return `${(idrx / 1_000).toFixed(2)}K`;
-  return idrx.toFixed(2);
-}
-
-// Utility: Format date from bigint timestamp
-function formatDateTime(timestamp: bigint): string {
-  const date = new Date(Number(timestamp) * 1000);
-  return date.toLocaleString();
-}
-
-interface EventData {
-  address: string;
-  name: string;
-  description: string;
-  date: bigint;
-  venue: string;
-  organizer: string;
-  totalSold: bigint;
-  tierCount: bigint;
-  ticketNFTAddress: string;
-}
-
-interface TicketTier {
-  id: number;
-  name: string;
-  price: bigint;
-  available: bigint;
-  sold: bigint;
-  maxPerPurchase: bigint;
-  description: string;
-  isActive: boolean;
-}
 
 const EventDetail: React.FC = () => {
   const { address: eventAddress } = useParams<{ address: string }>();
   const { address: userAddress, isConnected } = useAccount();
-  const [event, setEvent] = useState<EventData | null>(null);
-  const [tiers, setTiers] = useState<TicketTier[]>([]);
   const [selectedTier, setSelectedTier] = useState<number>(0);
   const [quantity, setQuantity] = useState<number>(1);
+  const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
 
   // Validate event address
   const isValidAddress = eventAddress && eventAddress.length === 42 && eventAddress.startsWith('0x');
+
+  // Get event data from blockchain
+  const { 
+    eventData, 
+    tierCount, 
+    isLoading: isLoadingEvent, 
+    error: eventError 
+  } = useEventDetails(eventAddress || '');
+
+  // Get ticket tiers
+  const { 
+    tiers, 
+    isLoading: isLoadingTiers 
+  } = useEventTiers(eventAddress || '', Number(tierCount || 0n));
+
+  // Get event statistics
+  const { 
+    burnStats, 
+    revenue, 
+    activeTickets 
+  } = useEventStats(eventAddress || '');
+
+  // Get user's IDRX balance
+  const { data: userBalance } = useIDRXBalance();
 
   // Contract write hooks
   const { writeContract: approveIDRX, data: approveHash, isPending: isApproving } = useWriteContract();
@@ -92,118 +102,9 @@ const EventDetail: React.FC = () => {
     hash: purchaseHash,
   });
 
-  // Get event details using individual contract calls
-  const { data: eventDetails, isLoading: isLoadingEvent, error: eventError } = useReadContract({
-    address: eventAddress as `0x${string}`,
-    abi: EventABI,
-    functionName: 'getEventDetails',
-    query: { enabled: !!isValidAddress },
-  });
-
-  const { data: tierCount } = useReadContract({
-    address: eventAddress as `0x${string}`,
-    abi: EventABI,
-    functionName: 'tierCount',
-    query: { enabled: !!isValidAddress },
-  });
-
-  const { data: totalSold } = useReadContract({
-    address: eventAddress as `0x${string}`,
-    abi: EventABI,
-    functionName: 'getTotalSold',
-    query: { enabled: !!isValidAddress },
-  });
-
-  const { data: ticketNFTAddress } = useReadContract({
-    address: eventAddress as `0x${string}`,
-    abi: EventABI,
-    functionName: 'getTicketNFTAddress',
-    query: { enabled: !!isValidAddress },
-  });
-
-  // Get user's IDRX balance
-  const { data: userBalance } = useReadContract({
-    address: CONTRACT_ADDRESSES.IDRX,
-    abi: MockIDRXABI,
-    functionName: 'balanceOf',
-    args: userAddress ? [userAddress] : undefined,
-    query: { enabled: !!userAddress },
-  });
-
-  // Process event data when loaded
-  useEffect(() => {
-    if (eventDetails && tierCount !== undefined && totalSold !== undefined && ticketNFTAddress) {
-      try {
-        const detailsArray = eventDetails as readonly [string, string, bigint, string, string];
-        const [name, description, date, venue, organizer] = detailsArray;
-        
-        setEvent({
-          address: eventAddress!,
-          name,
-          description,
-          date,
-          venue,
-          organizer,
-          totalSold: totalSold as bigint,
-          tierCount: tierCount as bigint,
-          ticketNFTAddress: ticketNFTAddress as string,
-        });
-
-        console.log('Event loaded successfully:', { name, tierCount: tierCount.toString() });
-      } catch (error) {
-        console.error('Error processing event data:', error);
-        toast({
-          title: 'Error loading event',
-          description: 'Failed to process event data from blockchain',
-          status: 'error',
-          duration: 5000,
-        });
-      }
-    }
-  }, [eventDetails, tierCount, totalSold, ticketNFTAddress, eventAddress, toast]);
-
-  // Load tiers when tierCount is available
-  useEffect(() => {
-    const loadTiers = async () => {
-      if (!tierCount || !isValidAddress || Number(tierCount) === 0) return;
-
-      try {
-        console.log(`Loading ${tierCount.toString()} tiers for event ${eventAddress}`);
-        
-        // Create mock tier data based on the tier count
-        const mockTiers: TicketTier[] = [];
-        for (let i = 0; i < Number(tierCount); i++) {
-          mockTiers.push({
-            id: i,
-            name: i === 0 ? 'General Admission' : i === 1 ? 'VIP Pass' : `Premium Tier ${i}`,
-            price: BigInt(250000 * (i + 1) * 1e18), // 250k, 500k, 750k IDRX
-            available: BigInt(100 - i * 10),
-            sold: BigInt(Math.floor(Math.random() * 20)),
-            maxPerPurchase: BigInt(Math.max(1, 4 - i)),
-            description: i === 0 ? 'Standard event access' : i === 1 ? 'Premium experience with VIP access' : `Premium tier ${i} benefits`,
-            isActive: true,
-          });
-        }
-
-        setTiers(mockTiers);
-        console.log('Tiers loaded:', mockTiers);
-      } catch (error) {
-        console.error('Error loading tiers:', error);
-        toast({
-          title: 'Error loading ticket tiers',
-          description: 'Failed to load ticket information',
-          status: 'error',
-          duration: 3000,
-        });
-      }
-    };
-
-    loadTiers();
-  }, [tierCount, isValidAddress, eventAddress, toast]);
-
-  // Handle purchase
+  // Handle purchase flow
   const handlePurchase = async () => {
-    if (!isConnected || !userAddress || !event || tiers.length === 0) {
+    if (!isConnected || !userAddress || !eventData || tiers.length === 0) {
       toast({
         title: 'Cannot purchase',
         description: 'Please connect your wallet and try again',
@@ -214,7 +115,27 @@ const EventDetail: React.FC = () => {
     }
 
     const selectedTierData = tiers[selectedTier];
+    if (!selectedTierData) {
+      toast({
+        title: 'Invalid tier selected',
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+
     const totalCost = selectedTierData.price * BigInt(quantity);
+
+    // Check balance
+    if (typeof userBalance === 'bigint' && userBalance < totalCost) {
+      toast({
+        title: 'Insufficient IDRX balance',
+        description: `You need ${formatIDRX(totalCost)} IDRX but only have ${formatIDRX(userBalance)} IDRX`,
+        status: 'error',
+        duration: 5000,
+      });
+      return;
+    }
 
     try {
       // Step 1: Approve IDRX spending
@@ -243,9 +164,9 @@ const EventDetail: React.FC = () => {
     }
   };
 
-  // Handle approval success
+  // Handle approval success - proceed to purchase
   useEffect(() => {
-    if (isApproveSuccess && event && tiers.length > 0) {
+    if (isApproveSuccess && eventData && tiers.length > 0) {
       toast({
         title: 'Step 2: Purchasing tickets...',
         description: 'Please confirm the purchase transaction',
@@ -261,7 +182,7 @@ const EventDetail: React.FC = () => {
         args: [BigInt(selectedTier), BigInt(quantity)],
       });
     }
-  }, [isApproveSuccess, event, tiers, selectedTier, quantity, eventAddress, purchaseTicket]);
+  }, [isApproveSuccess, eventData, tiers, selectedTier, quantity, eventAddress, purchaseTicket]);
 
   // Handle purchase success
   useEffect(() => {
@@ -273,10 +194,14 @@ const EventDetail: React.FC = () => {
         duration: 5000,
       });
 
+      onClose();
+      
       // Refresh page to show updated data
-      window.location.reload();
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
     }
-  }, [isPurchaseSuccess, quantity, toast]);
+  }, [isPurchaseSuccess, quantity, toast, onClose]);
 
   // Validation checks
   if (!isValidAddress) {
@@ -314,7 +239,7 @@ const EventDetail: React.FC = () => {
   }
 
   // Show loading state
-  if (isLoadingEvent || !event) {
+  if (isLoadingEvent || !eventData) {
     return (
       <Container maxW="container.xl" py={8}>
         <VStack spacing={4}>
@@ -335,6 +260,7 @@ const EventDetail: React.FC = () => {
   const totalPrice = selectedTierData ? selectedTierData.price * BigInt(quantity) : 0n;
   const remainingTickets = selectedTierData ? Number(selectedTierData.available - selectedTierData.sold) : 0;
   const selloutPercentage = selectedTierData ? Number(selectedTierData.sold) / Number(selectedTierData.available) * 100 : 0;
+  const maxQuantity = selectedTierData ? Math.min(Number(selectedTierData.maxPerPurchase), remainingTickets) : 0;
 
   const isPurchaseInProgress = isApproving || isConfirmingApprove || isPurchasing || isConfirmingPurchase;
 
@@ -351,8 +277,8 @@ const EventDetail: React.FC = () => {
             {/* Event Header */}
             <Box>
               <Image
-                src={`https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=400&fit=crop&sig=${event.address.slice(-6)}`}
-                alt={event.name}
+                src={`https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=400&fit=crop&sig=${eventData.address.slice(-6)}`}
+                alt={eventData.name}
                 height="300px"
                 width="100%"
                 objectFit="cover"
@@ -360,7 +286,7 @@ const EventDetail: React.FC = () => {
                 mb={4}
               />
               
-              <HStack mb={2}>
+              <HStack mb={2} flexWrap="wrap">
                 <Badge colorScheme="green" fontSize="sm" px={3} py={1}>
                   🔗 Real Contract
                 </Badge>
@@ -368,39 +294,82 @@ const EventDetail: React.FC = () => {
                   🔥 NFT Burn System
                 </Badge>
                 <Badge colorScheme="blue" fontSize="sm" px={3} py={1}>
-                  Lisk Blockchain
+                  {Number(tierCount)} Tier{Number(tierCount) > 1 ? 's' : ''}
+                </Badge>
+                <Badge colorScheme="orange" fontSize="sm" px={3} py={1}>
+                  Anvil Local
                 </Badge>
               </HStack>
               
               <Heading size="2xl" mb={4}>
-                {event.name}
+                {eventData.name}
               </Heading>
               
               <Text fontSize="lg" color="gray.600" mb={4}>
-                {event.description}
+                {eventData.description}
               </Text>
               
-              <HStack spacing={6} color="gray.500" flexWrap="wrap">
+              <HStack spacing={6} color="gray.500" flexWrap="wrap" mb={4}>
                 <HStack>
                   <CalendarIcon />
-                  <Text>{formatDateTime(event.date)}</Text>
+                  <Text>{formatDateTime(eventData.date)}</Text>
                 </HStack>
                 <HStack>
                   <Text>📍</Text>
-                  <Text>{event.venue}</Text>
+                  <Text>{eventData.venue}</Text>
                 </HStack>
                 <HStack>
                   <Text>👤</Text>
-                  <Text fontFamily="monospace">{event.organizer.slice(0, 8)}...{event.organizer.slice(-6)}</Text>
+                  <Text fontFamily="monospace">{eventData.organizer.slice(0, 8)}...{eventData.organizer.slice(-6)}</Text>
                 </HStack>
               </HStack>
 
-              <Box mt={4} p={3} bg="gray.50" borderRadius="lg">
+              <Box p={3} bg="gray.50" borderRadius="lg">
                 <Text fontSize="sm" color="gray.600">
                   <Text as="span" fontWeight="bold">Contract:</Text>{' '}
-                  <Text as="span" fontFamily="monospace">{event.address}</Text>
+                  <Text as="span" fontFamily="monospace">{eventData.address}</Text>
+                </Text>
+                <Text fontSize="sm" color="gray.600">
+                  <Text as="span" fontWeight="bold">NFT Contract:</Text>{' '}
+                  <Text as="span" fontFamily="monospace">{eventData.ticketNFTAddress}</Text>
                 </Text>
               </Box>
+            </Box>
+
+            {/* Event Statistics */}
+            <Box bg="white" p={6} borderRadius="xl" boxShadow="lg">
+              <Heading size="md" mb={4}>📊 Event Statistics</Heading>
+              <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
+                <Stat>
+                  <StatLabel>Total Sold</StatLabel>
+                  <StatNumber color="green.500">{Number(eventData.totalSold)}</StatNumber>
+                  <StatHelpText>NFT Tickets</StatHelpText>
+                </Stat>
+                
+                <Stat>
+                  <StatLabel>Revenue</StatLabel>
+                  <StatNumber color="purple.500">
+                    {revenue ? formatIDRXCompact(revenue) : '0'} IDRX
+                  </StatNumber>
+                  <StatHelpText>Total Earned</StatHelpText>
+                </Stat>
+                
+                <Stat>
+                  <StatLabel>Active Tickets</StatLabel>
+                  <StatNumber color="blue.500">
+                    {activeTickets ? activeTickets.length : 0}
+                  </StatNumber>
+                  <StatHelpText>Not Burned</StatHelpText>
+                </Stat>
+                
+                <Stat>
+                  <StatLabel>Burned</StatLabel>
+                  <StatNumber color="red.500">
+                    {burnStats ? Number(burnStats[0]) : 0}
+                  </StatNumber>
+                  <StatHelpText>Used Tickets</StatHelpText>
+                </Stat>
+              </SimpleGrid>
             </Box>
 
             {/* How it Works */}
@@ -418,10 +387,15 @@ const EventDetail: React.FC = () => {
             </Alert>
 
             {/* Ticket Tiers */}
-            {tiers.length > 0 && (
+            {isLoadingTiers ? (
+              <Box textAlign="center" py={8}>
+                <Spinner size="lg" color="purple.500" mb={4} />
+                <Text>Loading ticket tiers...</Text>
+              </Box>
+            ) : tiers.length > 0 ? (
               <Box>
                 <Heading size="md" mb={4}>
-                  Choose Your Ticket ({tiers.length} tier{tiers.length > 1 ? 's' : ''})
+                  🎫 Choose Your Ticket ({tiers.length} tier{tiers.length > 1 ? 's' : ''})
                 </Heading>
                 <VStack spacing={4}>
                   {tiers.map((tier, index) => (
@@ -434,6 +408,11 @@ const EventDetail: React.FC = () => {
                   ))}
                 </VStack>
               </Box>
+            ) : (
+              <Alert status="warning" borderRadius="lg">
+                <AlertIcon />
+                <Text>No ticket tiers configured for this event</Text>
+              </Alert>
             )}
           </VStack>
         </GridItem>
@@ -498,7 +477,7 @@ const EventDetail: React.FC = () => {
                       value={quantity}
                       onChange={(_, val) => setQuantity(val || 1)}
                       min={1}
-                      max={Math.min(Number(selectedTierData.maxPerPurchase), remainingTickets)}
+                      max={maxQuantity}
                       isDisabled={remainingTickets === 0}
                     >
                       <NumberInputField />
@@ -525,8 +504,8 @@ const EventDetail: React.FC = () => {
                     {typeof userBalance !== 'undefined' && (
                       <HStack justify="space-between" width="100%" fontSize="sm">
                         <Text color="gray.500">Your Balance</Text>
-                        <Text color={userBalance >= totalPrice ? "green.600" : "red.600"}>
-                          {formatIDRXCompact(userBalance as bigint)} IDRX
+                        <Text color={typeof userBalance === 'bigint' && userBalance >= totalPrice ? "green.600" : "red.600"}>
+                          {typeof userBalance === 'bigint' ? formatIDRXCompact(userBalance) : '0'} IDRX
                         </Text>
                       </HStack>
                     )}
@@ -535,7 +514,7 @@ const EventDetail: React.FC = () => {
                   <Button
                     colorScheme="purple"
                     size="lg"
-                    onClick={handlePurchase}
+                    onClick={onOpen}
                     isLoading={isPurchaseInProgress}
                     loadingText={
                       isApproving || isConfirmingApprove ? "Approving..." : 
@@ -545,7 +524,8 @@ const EventDetail: React.FC = () => {
                       Boolean(
                         remainingTickets === 0 || 
                         !isConnected || 
-                        (userBalance && userBalance < totalPrice)
+                        (typeof userBalance === 'bigint' && userBalance < totalPrice) ||
+                        maxQuantity === 0
                       )
                     }
                     borderRadius="lg"
@@ -554,7 +534,7 @@ const EventDetail: React.FC = () => {
                       ? 'Sold Out'
                       : !isConnected
                       ? 'Connect Wallet'
-                      : userBalance && userBalance < totalPrice
+                      : typeof userBalance === 'bigint' && userBalance < totalPrice
                       ? 'Insufficient IDRX'
                       : `🔥 Buy ${quantity} NFT Ticket${quantity > 1 ? 's' : ''}`
                     }
@@ -584,12 +564,79 @@ const EventDetail: React.FC = () => {
           </Box>
         </GridItem>
       </Grid>
+
+      {/* Purchase Confirmation Modal */}
+      <Modal isOpen={isOpen} onClose={onClose} size="md">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Confirm Purchase</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              {selectedTierData && (
+                <Box p={4} bg="purple.50" borderRadius="lg">
+                  <Text fontWeight="bold" color="purple.800">
+                    {selectedTierData.name}
+                  </Text>
+                  <Text color="purple.600">
+                    {quantity} ticket{quantity > 1 ? 's' : ''} × {formatIDRX(selectedTierData.price)} IDRX
+                  </Text>
+                  <Text fontSize="lg" fontWeight="bold" color="purple.800">
+                    Total: {formatIDRX(totalPrice)} IDRX
+                  </Text>
+                </Box>
+              )}
+
+              <Alert status="info" borderRadius="lg">
+                <AlertIcon />
+                <VStack align="start" spacing={1}>
+                  <Text fontWeight="bold" fontSize="sm">🔥 NFT Burn System:</Text>
+                  <Text fontSize="sm">
+                    NFT tickets will be minted to your wallet. At the venue, staff will permanently burn your NFTs to grant entry.
+                  </Text>
+                </VStack>
+              </Alert>
+
+              <Alert status="warning" borderRadius="lg">
+                <AlertIcon />
+                <Text fontSize="sm">
+                  This will initiate 2 blockchain transactions:
+                  <br />1. Approve IDRX spending
+                  <br />2. Purchase and mint NFT tickets
+                </Text>
+              </Alert>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              colorScheme="purple"
+              onClick={handlePurchase}
+              isLoading={isPurchaseInProgress}
+              loadingText="Processing..."
+            >
+              🔥 Confirm Purchase
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Container>
   );
 };
 
 interface TierCardProps {
-  tier: TicketTier;
+  tier: {
+    id: number;
+    name: string;
+    price: bigint;
+    available: bigint;
+    sold: bigint;
+    maxPerPurchase: bigint;
+    description: string;
+    isActive: boolean;
+  };
   isSelected: boolean;
   onSelect: () => void;
 }
@@ -610,6 +657,7 @@ const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
       _hover={{ borderColor: 'purple.300' }}
       transition="all 0.2s"
       width="100%"
+      opacity={tier.isActive ? 1 : 0.6}
     >
       <HStack justify="space-between" align="start">
         <VStack align="start" spacing={2} flex={1}>
@@ -618,6 +666,11 @@ const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
             {remaining <= 10 && remaining > 0 && (
               <Badge colorScheme="orange" variant="solid">
                 {remaining} left!
+              </Badge>
+            )}
+            {!tier.isActive && (
+              <Badge colorScheme="gray" variant="solid">
+                Inactive
               </Badge>
             )}
           </HStack>
@@ -645,8 +698,8 @@ const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
         </VStack>
         
         <VStack align="end" spacing={1}>
-          <Badge colorScheme={remaining > 0 ? 'green' : 'red'} variant="solid">
-            {remaining > 0 ? 'Available' : 'Sold Out'}
+          <Badge colorScheme={remaining > 0 && tier.isActive ? 'green' : 'red'} variant="solid">
+            {remaining > 0 && tier.isActive ? 'Available' : 'Sold Out'}
           </Badge>
           <Text fontSize="xs" color="gray.500">
             Max {Number(tier.maxPerPurchase)} each

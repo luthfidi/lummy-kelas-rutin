@@ -1,4 +1,4 @@
-// src/pages/CreateEvent.tsx - FIXED REAL TIER ADDITION
+// src/pages/CreateEvent.tsx - FIXED TO USE CORRECT ABI
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -31,7 +31,7 @@ import { AddIcon, DeleteIcon, ArrowBackIcon } from '@chakra-ui/icons';
 import { Link } from 'react-router-dom';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
-import { EventFactoryABI, EventABI } from '../contracts/abis';
+import { SimpleEventFactoryABI, EventABI } from '../contracts/abis'; // Fix: Use SimpleEventFactoryABI
 import { useUserRole, useIsAuthorizedOrganizer, parseIDRX } from '../hooks/useBlockchain';
 
 interface TicketTier {
@@ -77,12 +77,13 @@ const CreateEvent: React.FC = () => {
   // Watch for EventCreated event to get the created event address
   useWatchContractEvent({
     address: CONTRACT_ADDRESSES.EventFactory,
-    abi: EventFactoryABI,
+    abi: SimpleEventFactoryABI, // Fix: Use SimpleEventFactoryABI
     eventName: 'EventCreated',
     onLogs(logs) {
       console.log('EventCreated logs:', logs);
       if (logs.length > 0) {
-        const eventAddress = logs[0].args.eventAddress;
+        // Destructure eventAddress from the args property
+        const { eventAddress } = (logs[0] as any).args || {};
         if (eventAddress) {
           console.log('Event created at address:', eventAddress);
           setCreatedEventAddress(eventAddress);
@@ -201,7 +202,7 @@ const CreateEvent: React.FC = () => {
       // Create the event
       createEvent({
         address: CONTRACT_ADDRESSES.EventFactory,
-        abi: EventFactoryABI,
+        abi: SimpleEventFactoryABI, // Fix: Use SimpleEventFactoryABI
         functionName: 'createEvent',
         args: [eventParams],
       });

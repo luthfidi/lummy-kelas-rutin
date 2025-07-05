@@ -39,9 +39,9 @@ export const config = createConfig({
 // Contract addresses - UPDATED with your deployed addresses
 export const CONTRACT_ADDRESSES = {
   // Local development addresses (from deployment-31337.json)
-  AccessControl: '0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0' as `0x${string}`,
-  EventFactory: '0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82' as `0x${string}`,
-  IDRX: '0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e' as `0x${string}`,
+  AccessControl: '0x3Aa5ebB10DC797CAC828524e59A333d0A371443c' as `0x${string}`,
+  EventFactory: '0xc6e7DF5E7b4f2A278906862b61205850344D4e7d' as `0x${string}`,
+  IDRX: '0x68B1D87F95878fE05B998F19b66F4baba5De1aed' as `0x${string}`,
   
   // Note: Make sure these addresses match what's actually deployed
   // You can verify by checking deployment-31337.json

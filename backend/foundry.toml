@@ -29,6 +29,7 @@ fs_permissions = [{ access = "read-write", path = "./" }]
 lisk-sepolia = "https://rpc.sepolia.lisk.com"
 local = "http://127.0.0.1:8545"
 localhost = "http://127.0.0.1:8545"
+monad-testnet = "https://testnet-rpc.monad.xyz"
 
 [etherscan]
 lisk-sepolia = { key = "${LISK_ETHERSCAN_API_KEY}", url = "https://sepolia-blockscout.lisk.com/api" }

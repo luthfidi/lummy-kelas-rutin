@@ -1,4 +1,4 @@
-// src/contracts/abis.ts - COMPLETE FIXED VERSION
+// src/contracts/abis.ts - COMPLETE VERSION WITH getTierDetails
 export const EventFactoryABI = [
   {
     type: "constructor",
@@ -199,6 +199,26 @@ export const EventABI = [
     ],
     stateMutability: "view",
   },
+  {
+    type: "event",
+    name: "TicketTierAdded",
+    inputs: [
+      {
+        name: "tierId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      { name: "name", type: "string", indexed: false, internalType: "string" },
+      {
+        name: "price",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
 ] as const;
 
 export const MockIDRXABI = [
@@ -342,6 +362,28 @@ export const TicketNFTABI = [
     name: "isTicketValid",
     inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
     outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getTicketMetadata",
+    inputs: [{ name: "tokenId", type: "uint256", internalType: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct ITicketNFT.TicketMetadata",
+        components: [
+          { name: "tierId", type: "uint256", internalType: "uint256" },
+          { name: "originalOwner", type: "address", internalType: "address" },
+          { name: "currentOwner", type: "address", internalType: "address" },
+          { name: "mintTimestamp", type: "uint256", internalType: "uint256" },
+          { name: "burnTimestamp", type: "uint256", internalType: "uint256" },
+          { name: "burnedBy", type: "address", internalType: "address" },
+          { name: "isUsed", type: "bool", internalType: "bool" },
+        ],
+      },
+    ],
     stateMutability: "view",
   },
 ] as const;

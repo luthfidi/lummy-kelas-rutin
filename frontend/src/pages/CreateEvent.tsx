@@ -1,4 +1,4 @@
-// src/pages/CreateEvent.tsx
+// src/pages/CreateEvent.tsx - FIXED REAL TIER ADDITION
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -29,10 +29,9 @@ import {
 } from '@chakra-ui/react';
 import { AddIcon, DeleteIcon, ArrowBackIcon } from '@chakra-ui/icons';
 import { Link } from 'react-router-dom';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '../config/wagmi';
 import { EventFactoryABI, EventABI } from '../contracts/abis';
-// TODO: Implement or import these hooks/utilities from the correct location if available
 import { useUserRole, useIsAuthorizedOrganizer, parseIDRX } from '../hooks/useBlockchain';
 
 interface TicketTier {
@@ -50,6 +49,7 @@ const CreateEvent: React.FC = () => {
   const { data: isAuthorized } = useIsAuthorizedOrganizer();
   const [deploymentStep, setDeploymentStep] = useState(0);
   const [createdEventAddress, setCreatedEventAddress] = useState<string>('');
+  const [currentTierIndex, setCurrentTierIndex] = useState(0);
   const toast = useToast();
 
   // Contract write hooks
@@ -70,8 +70,25 @@ const CreateEvent: React.FC = () => {
     hash: createEventHash,
   });
 
-  const { isLoading: isConfirmingTier } = useWaitForTransactionReceipt({
+  const { isLoading: isConfirmingTier, isSuccess: isTierSuccess } = useWaitForTransactionReceipt({
     hash: addTierHash,
+  });
+
+  // Watch for EventCreated event to get the created event address
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESSES.EventFactory,
+    abi: EventFactoryABI,
+    eventName: 'EventCreated',
+    onLogs(logs) {
+      console.log('EventCreated logs:', logs);
+      if (logs.length > 0) {
+        const eventAddress = logs[0].args.eventAddress;
+        if (eventAddress) {
+          console.log('Event created at address:', eventAddress);
+          setCreatedEventAddress(eventAddress);
+        }
+      }
+    },
   });
 
   // Event form data
@@ -179,6 +196,8 @@ const CreateEvent: React.FC = () => {
         ipfsMetadata: eventData.ipfsMetadata || `event-${Date.now()}`,
       };
 
+      console.log('Creating event with params:', eventParams);
+
       // Create the event
       createEvent({
         address: CONTRACT_ADDRESSES.EventFactory,
@@ -201,68 +220,75 @@ const CreateEvent: React.FC = () => {
 
   // Handle successful event creation
   useEffect(() => {
-    if (isCreateSuccess && createEventHash) {
+    if (isCreateSuccess && createEventHash && createdEventAddress) {
+      console.log('Event creation confirmed, starting tier addition...');
       setDeploymentStep(2);
       
-      // Parse the transaction receipt to get the event address
-      // This is a simplified approach - in production you'd listen for the EventCreated event
+      // Start adding tiers after a short delay
       setTimeout(() => {
-        setDeploymentStep(3);
-        addTicketTiers();
+        addNextTier();
       }, 2000);
     }
-  }, [isCreateSuccess, createEventHash]);
+  }, [isCreateSuccess, createEventHash, createdEventAddress]);
 
-  const addTicketTiers = async () => {
-    if (!createdEventAddress) {
-      // In a real implementation, you'd get this from the transaction logs
-      // For now, we'll simulate it
-      const mockEventAddress = `0x${Math.random().toString(16).substring(2, 42)}`;
-      setCreatedEventAddress(mockEventAddress);
+  // Handle successful tier addition
+  useEffect(() => {
+    if (isTierSuccess && currentTierIndex < tiers.length) {
+      console.log(`Tier ${currentTierIndex} added successfully`);
+      
+      // Move to next tier or complete
+      if (currentTierIndex + 1 < tiers.length) {
+        setCurrentTierIndex(prev => prev + 1);
+        setTimeout(() => {
+          addNextTier();
+        }, 1000);
+      } else {
+        // All tiers added
+        setDeploymentStep(4);
+        setTimeout(() => {
+          toast({
+            title: 'Event created successfully! 🚀',
+            description: `Your event is now live on the blockchain with ${tiers.length} ticket tiers`,
+            status: 'success',
+            duration: 5000,
+          });
+          
+          navigate(`/event/${createdEventAddress}`);
+        }, 2000);
+      }
     }
+  }, [isTierSuccess, currentTierIndex, tiers.length, createdEventAddress, navigate, toast]);
+
+  const addNextTier = async () => {
+    if (!createdEventAddress || currentTierIndex >= tiers.length) {
+      console.error('Cannot add tier: missing event address or invalid index');
+      return;
+    }
+
+    const tier = tiers[currentTierIndex];
+    setDeploymentStep(3);
+    
+    console.log(`Adding tier ${currentTierIndex + 1}/${tiers.length}:`, tier);
 
     try {
-      // Add each tier to the event
-      for (let i = 0; i < tiers.length; i++) {
-        const tier = tiers[i];
-        setDeploymentStep(3 + i);
-        
-        addTier({
-          address: createdEventAddress as `0x${string}`,
-          abi: EventABI,
-          functionName: 'addTicketTier',
-          args: [
-            tier.name,
-            parseIDRX(tier.price),
-            BigInt(tier.available),
-            BigInt(tier.maxPerPurchase),
-            tier.description,
-          ],
-        });
-        
-        // Wait a bit between transactions
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-      
-      setDeploymentStep(4);
-      
-      setTimeout(() => {
-        toast({
-          title: 'Event created successfully! 🚀',
-          description: `Your event is now live on the blockchain`,
-          status: 'success',
-          duration: 5000,
-        });
-        
-        navigate('/');
-      }, 2000);
-      
+      addTier({
+        address: createdEventAddress as `0x${string}`,
+        abi: EventABI,
+        functionName: 'addTicketTier',
+        args: [
+          tier.name,
+          parseIDRX(tier.price),
+          BigInt(tier.available),
+          BigInt(tier.maxPerPurchase),
+          tier.description,
+        ],
+      });
     } catch (error) {
-      console.error('Error adding tiers:', error);
+      console.error('Error adding tier:', error);
       toast({
-        title: 'Failed to add ticket tiers',
-        description: 'Event created but tiers failed. You can add them later.',
-        status: 'warning',
+        title: 'Failed to add ticket tier',
+        description: `Error adding tier: ${tier.name}`,
+        status: 'error',
         duration: 5000,
       });
     }
@@ -272,7 +298,7 @@ const CreateEvent: React.FC = () => {
     'Ready to deploy...',
     'Creating Event contract...',
     'Event deployed successfully...',
-    'Adding ticket tiers...',
+    `Adding ticket tier ${currentTierIndex + 1}/${tiers.length}...`,
     'Deployment complete!'
   ];
 
@@ -344,18 +370,35 @@ const CreateEvent: React.FC = () => {
           <Alert status="info" borderRadius="lg">
             <AlertIcon />
             <VStack align="start" spacing={1}>
-              <Text fontWeight="bold">Deploying NFT Burn System:</Text>
+              <Text fontWeight="bold">🔥 Deploying NFT Burn System:</Text>
               <Text fontSize="sm">
                 Creating Event contract + TicketNFT contract with burn functionality.
-                This enables permanent ticket destruction at venue for 100% security.
+                Then adding {tiers.length} ticket tier{tiers.length > 1 ? 's' : ''} to the contract.
               </Text>
             </VStack>
           </Alert>
 
-          {createEventHash && (
+          {/* Show current transaction hash */}
+          {createEventHash && deploymentStep <= 2 && (
             <Box textAlign="center">
               <Text fontSize="sm" color="gray.600">
-                Transaction: {createEventHash.slice(0, 10)}...{createEventHash.slice(-8)}
+                Event Creation TX: {createEventHash.slice(0, 10)}...{createEventHash.slice(-8)}
+              </Text>
+            </Box>
+          )}
+
+          {addTierHash && deploymentStep >= 3 && (
+            <Box textAlign="center">
+              <Text fontSize="sm" color="gray.600">
+                Adding Tier TX: {addTierHash.slice(0, 10)}...{addTierHash.slice(-8)}
+              </Text>
+            </Box>
+          )}
+
+          {createdEventAddress && (
+            <Box textAlign="center">
+              <Text fontSize="sm" color="green.600" fontWeight="bold">
+                Event Address: {createdEventAddress.slice(0, 10)}...{createdEventAddress.slice(-8)}
               </Text>
             </Box>
           )}
@@ -635,7 +678,7 @@ const CreateEvent: React.FC = () => {
 
               <Text fontSize="sm" color="gray.500" textAlign="center" maxW="md">
                 This will deploy smart contracts for your event with NFT burn functionality.
-                Transaction fees will be paid from your connected wallet.
+                Each tier will be added to the blockchain separately.
               </Text>
             </VStack>
           </VStack>

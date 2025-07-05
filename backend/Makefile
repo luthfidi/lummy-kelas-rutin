@@ -141,6 +141,9 @@ dev-setup: install build test ## Complete development setup
 dev-deploy: build deploy-local setup-local generate-abi ## Deploy and setup for development
 	@echo "✅ Development deployment complete"
 
+deploy-monad: ## Deploy to Monad testnet
+	forge script script/Deploy.s.sol --rpc-url monad-testnet --broadcast --verify --private-key $$PRIVATE_KEY
+
 production-deploy: build test deploy-lisk setup-lisk verify generate-abi update-frontend-config ## Full production deployment
 	@echo "✅ Production deployment complete"
 

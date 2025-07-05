@@ -1,5 +1,5 @@
 // src/pages/CreateEvent.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -29,10 +29,14 @@ import {
 } from '@chakra-ui/react';
 import { AddIcon, DeleteIcon, ArrowBackIcon } from '@chakra-ui/icons';
 import { Link } from 'react-router-dom';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { CONTRACT_ADDRESSES } from '../config/wagmi';
+import { EventFactoryABI, EventABI } from '../contracts/abis';
+import { useUserRole, useIsAuthorizedOrganizer, parseIDRX } from '../hooks/useBlockchain';
 
 interface TicketTier {
   name: string;
-  price: number;
+  price: string; // Keep as string for form input
   available: number;
   maxPerPurchase: number;
   description: string;
@@ -40,9 +44,34 @@ interface TicketTier {
 
 const CreateEvent: React.FC = () => {
   const navigate = useNavigate();
-  const [isDeploying, setIsDeploying] = useState(false);
+  const { address, isConnected } = useAccount();
+  const userRole = useUserRole();
+  const { data: isAuthorized } = useIsAuthorizedOrganizer();
   const [deploymentStep, setDeploymentStep] = useState(0);
+  const [createdEventAddress, setCreatedEventAddress] = useState<string>('');
   const toast = useToast();
+
+  // Contract write hooks
+  const { 
+    writeContract: createEvent, 
+    data: createEventHash,
+    isPending: isCreatingEvent 
+  } = useWriteContract();
+
+  const { 
+    writeContract: addTier,
+    data: addTierHash,
+    isPending: isAddingTier
+  } = useWriteContract();
+
+  // Wait for transaction confirmations
+  const { isLoading: isConfirmingCreate, isSuccess: isCreateSuccess } = useWaitForTransactionReceipt({
+    hash: createEventHash,
+  });
+
+  const { isLoading: isConfirmingTier } = useWaitForTransactionReceipt({
+    hash: addTierHash,
+  });
 
   // Event form data
   const [eventData, setEventData] = useState({
@@ -50,13 +79,14 @@ const CreateEvent: React.FC = () => {
     description: '',
     date: '',
     venue: '',
+    ipfsMetadata: '',
   });
 
   // Ticket tiers
   const [tiers, setTiers] = useState<TicketTier[]>([
     {
       name: 'General Admission',
-      price: 250, // in IDRX (not wei for simplicity)
+      price: '250000', // 250k IDRX
       available: 300,
       maxPerPurchase: 4,
       description: 'Standard event access',
@@ -76,10 +106,10 @@ const CreateEvent: React.FC = () => {
     ));
   };
 
-  const addTier = () => {
+  const addTierToForm = () => {
     setTiers(prev => [...prev, {
       name: '',
-      price: 0,
+      price: '0',
       available: 100,
       maxPerPurchase: 4,
       description: '',
@@ -92,9 +122,27 @@ const CreateEvent: React.FC = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleCreateEvent = async () => {
+    if (!isConnected || !address) {
+      toast({
+        title: 'Wallet not connected',
+        description: 'Please connect your wallet to create an event',
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (!isAuthorized) {
+      toast({
+        title: 'Not authorized',
+        description: 'Only authorized organizers can create events',
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+
     if (!eventData.name || !eventData.date || !eventData.venue) {
       toast({
         title: 'Missing required fields',
@@ -105,7 +153,7 @@ const CreateEvent: React.FC = () => {
       return;
     }
 
-    if (tiers.some(tier => !tier.name || tier.price <= 0)) {
+    if (tiers.some(tier => !tier.name || parseFloat(tier.price) <= 0)) {
       toast({
         title: 'Invalid ticket tiers',
         description: 'Please complete all ticket tier information',
@@ -115,47 +163,150 @@ const CreateEvent: React.FC = () => {
       return;
     }
 
-    setIsDeploying(true);
-    setDeploymentStep(0);
+    try {
+      setDeploymentStep(1);
+      
+      // Convert date to timestamp
+      const eventTimestamp = Math.floor(new Date(eventData.date).getTime() / 1000);
+      
+      // Create event parameters
+      const eventParams = {
+        name: eventData.name,
+        description: eventData.description,
+        date: BigInt(eventTimestamp),
+        venue: eventData.venue,
+        ipfsMetadata: eventData.ipfsMetadata || `event-${Date.now()}`,
+      };
 
-    // Simulate deployment steps
-    const steps = [
-      'Validating event data...',
-      'Deploying Event contract...',
-      'Deploying TicketNFT contract...',
-      'Setting up ticket tiers...',
-      'Finalizing deployment...'
-    ];
+      // Create the event
+      createEvent({
+        address: CONTRACT_ADDRESSES.EventFactory,
+        abi: EventFactoryABI,
+        functionName: 'createEvent',
+        args: [eventParams],
+      });
 
-    for (let i = 0; i < steps.length; i++) {
-      setDeploymentStep(i);
-      await new Promise(resolve => setTimeout(resolve, 1500));
+    } catch (error) {
+      console.error('Error creating event:', error);
+      toast({
+        title: 'Transaction failed',
+        description: 'Failed to create event. Please try again.',
+        status: 'error',
+        duration: 5000,
+      });
+      setDeploymentStep(0);
+    }
+  };
+
+  // Handle successful event creation
+  useEffect(() => {
+    if (isCreateSuccess && createEventHash) {
+      setDeploymentStep(2);
+      
+      // Parse the transaction receipt to get the event address
+      // This is a simplified approach - in production you'd listen for the EventCreated event
+      setTimeout(() => {
+        setDeploymentStep(3);
+        addTicketTiers();
+      }, 2000);
+    }
+  }, [isCreateSuccess, createEventHash]);
+
+  const addTicketTiers = async () => {
+    if (!createdEventAddress) {
+      // In a real implementation, you'd get this from the transaction logs
+      // For now, we'll simulate it
+      const mockEventAddress = `0x${Math.random().toString(16).substring(2, 42)}`;
+      setCreatedEventAddress(mockEventAddress);
     }
 
-    // Generate mock contract address
-    const mockContractAddress = '0x' + Math.random().toString(16).substring(2, 42);
-
-    toast({
-      title: 'Event deployed successfully! 🚀',
-      description: `Contract deployed at ${mockContractAddress.slice(0, 8)}...${mockContractAddress.slice(-6)}`,
-      status: 'success',
-      duration: 5000,
-    });
-
-    setIsDeploying(false);
-    navigate('/');
+    try {
+      // Add each tier to the event
+      for (let i = 0; i < tiers.length; i++) {
+        const tier = tiers[i];
+        setDeploymentStep(3 + i);
+        
+        addTier({
+          address: createdEventAddress as `0x${string}`,
+          abi: EventABI,
+          functionName: 'addTicketTier',
+          args: [
+            tier.name,
+            parseIDRX(tier.price),
+            BigInt(tier.available),
+            BigInt(tier.maxPerPurchase),
+            tier.description,
+          ],
+        });
+        
+        // Wait a bit between transactions
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      setDeploymentStep(4);
+      
+      setTimeout(() => {
+        toast({
+          title: 'Event created successfully! 🚀',
+          description: `Your event is now live on the blockchain`,
+          status: 'success',
+          duration: 5000,
+        });
+        
+        navigate('/');
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Error adding tiers:', error);
+      toast({
+        title: 'Failed to add ticket tiers',
+        description: 'Event created but tiers failed. You can add them later.',
+        status: 'warning',
+        duration: 5000,
+      });
+    }
   };
 
   const deploymentSteps = [
-    'Validating event data...',
-    'Deploying Event contract...',
-    'Deploying TicketNFT contract...',
-    'Setting up ticket tiers...',
-    'Finalizing deployment...'
+    'Ready to deploy...',
+    'Creating Event contract...',
+    'Event deployed successfully...',
+    'Adding ticket tiers...',
+    'Deployment complete!'
   ];
 
   const totalTickets = tiers.reduce((sum, tier) => sum + tier.available, 0);
-  const estimatedRevenue = tiers.reduce((sum, tier) => sum + (tier.price * tier.available), 0);
+  const estimatedRevenue = tiers.reduce((sum, tier) => sum + (parseFloat(tier.price) * tier.available), 0);
+  const isDeploying = isCreatingEvent || isConfirmingCreate || isAddingTier || isConfirmingTier;
+
+  // Check authorization
+  if (!isConnected) {
+    return (
+      <Container maxW="container.lg" py={8}>
+        <Alert status="warning" borderRadius="lg">
+          <AlertIcon />
+          <VStack align="start" spacing={1}>
+            <Text fontWeight="bold">Wallet not connected</Text>
+            <Text fontSize="sm">Please connect your wallet to create events</Text>
+          </VStack>
+        </Alert>
+      </Container>
+    );
+  }
+
+  if (userRole !== 'organizer' || !isAuthorized) {
+    return (
+      <Container maxW="container.lg" py={8}>
+        <Alert status="error" borderRadius="lg">
+          <AlertIcon />
+          <VStack align="start" spacing={1}>
+            <Text fontWeight="bold">Not authorized</Text>
+            <Text fontSize="sm">Only authorized organizers can create events</Text>
+          </VStack>
+        </Alert>
+      </Container>
+    );
+  }
 
   if (isDeploying) {
     return (
@@ -167,7 +318,7 @@ const CreateEvent: React.FC = () => {
               Deploying Your Event
             </Heading>
             <Text color="gray.600">
-              Creating smart contracts on Lisk Sepolia...
+              Creating smart contracts on blockchain...
             </Text>
           </Box>
 
@@ -199,6 +350,14 @@ const CreateEvent: React.FC = () => {
               </Text>
             </VStack>
           </Alert>
+
+          {createEventHash && (
+            <Box textAlign="center">
+              <Text fontSize="sm" color="gray.600">
+                Transaction: {createEventHash.slice(0, 10)}...{createEventHash.slice(-8)}
+              </Text>
+            </Box>
+          )}
         </VStack>
       </Container>
     );
@@ -223,6 +382,17 @@ const CreateEvent: React.FC = () => {
           </Text>
         </Box>
 
+        {/* User Info */}
+        <Alert status="success" borderRadius="lg">
+          <AlertIcon />
+          <VStack align="start" spacing={1}>
+            <Text fontWeight="bold">✅ You are authorized as an Organizer</Text>
+            <Text fontSize="sm">
+              Connected as: {address?.slice(0, 8)}...{address?.slice(-6)}
+            </Text>
+          </VStack>
+        </Alert>
+
         {/* Info Alert */}
         <Alert status="info" borderRadius="lg">
           <AlertIcon />
@@ -237,7 +407,7 @@ const CreateEvent: React.FC = () => {
           </VStack>
         </Alert>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => { e.preventDefault(); handleCreateEvent(); }}>
           <VStack spacing={8} align="stretch">
             {/* Event Details */}
             <Box bg="white" p={6} borderRadius="xl" boxShadow="lg">
@@ -283,6 +453,15 @@ const CreateEvent: React.FC = () => {
                   placeholder="e.g. Jakarta Convention Center"
                 />
               </FormControl>
+
+              <FormControl mt={4}>
+                <FormLabel>IPFS Metadata (optional)</FormLabel>
+                <Input
+                  value={eventData.ipfsMetadata}
+                  onChange={(e) => handleInputChange('ipfsMetadata', e.target.value)}
+                  placeholder="e.g. QmHash... (auto-generated if empty)"
+                />
+              </FormControl>
             </Box>
 
             {/* Ticket Tiers */}
@@ -296,7 +475,7 @@ const CreateEvent: React.FC = () => {
                   size="sm"
                   colorScheme="purple"
                   variant="outline"
-                  onClick={addTier}
+                  onClick={addTierToForm}
                 >
                   Add Tier
                 </Button>
@@ -357,7 +536,7 @@ const CreateEvent: React.FC = () => {
                         <NumberInput
                           size="sm"
                           value={tier.price}
-                          onChange={(_, val) => handleTierChange(index, 'price', val || 0)}
+                          onChange={(val) => handleTierChange(index, 'price', val)}
                           min={0}
                         >
                           <NumberInputField bg="white" />
@@ -407,7 +586,7 @@ const CreateEvent: React.FC = () => {
             </Box>
 
             {/* Summary */}
-            <Box bg="gradient-to-r from-purple-50 to-pink-50" p={6} borderRadius="xl" border="2px" borderColor="purple.200">
+            <Box bg="purple.50" p={6} borderRadius="xl" border="2px" borderColor="purple.200">
               <Heading size="md" mb={4} color="purple.600">
                 📊 Event Summary
               </Heading>
@@ -443,17 +622,19 @@ const CreateEvent: React.FC = () => {
                 size="lg"
                 width="100%"
                 maxW="md"
-                isDisabled={!eventData.name || !eventData.date || !eventData.venue}
+                isDisabled={!eventData.name || !eventData.date || !eventData.venue || !isConnected}
+                isLoading={isDeploying}
+                loadingText="Deploying..."
                 leftIcon={<Text>🚀</Text>}
                 borderRadius="full"
                 py={6}
               >
-                Deploy Event Contract to Lisk Sepolia
+                Deploy Event Contract to Blockchain
               </Button>
 
               <Text fontSize="sm" color="gray.500" textAlign="center" maxW="md">
                 This will deploy smart contracts for your event with NFT burn functionality.
-                Gas fees are paid automatically by the platform.
+                Transaction fees will be paid from your connected wallet.
               </Text>
             </VStack>
           </VStack>

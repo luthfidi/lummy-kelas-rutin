@@ -12,8 +12,8 @@ import "../src/tokens/MockIDRX.sol";
  */
 contract SimpleDeploy is Script {
     // Wallet addresses for testing
-    address constant ADMIN = 0x580B01f8CDf7606723c3BE0dD2AaD058F5aECa3d;
-    address constant ORGANIZER_1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
+    address constant ADMIN = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+    address constant ORGANIZER_1 = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
     function run() external {
         // Use hardcoded private key for local development (Anvil account #0)

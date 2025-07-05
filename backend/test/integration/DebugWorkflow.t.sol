@@ -20,11 +20,11 @@ contract DebugCompleteWorkflowTest is Test {
     TicketNFT public ticketNFT;
     
     // Test wallets
-    address constant ADMIN = 0x580B01f8CDf7606723c3BE0dD2AaD058F5aECa3d;
-    address constant ORGANIZER_1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
-    address constant STAFF_1 = 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2;
-    address constant BUYER_1 = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db;
-    address constant BUYER_2 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB;
+    address constant ADMIN = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+    address constant ORGANIZER_1 = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+    address constant STAFF_1 = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    address constant BUYER_1 = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
+    address constant BUYER_2 = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     function setUp() public {
         // Deploy contracts as admin

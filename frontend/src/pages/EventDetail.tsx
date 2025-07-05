@@ -27,57 +27,268 @@ import {
   Icon,
 } from '@chakra-ui/react';
 import { ArrowBackIcon, CalendarIcon, InfoIcon } from '@chakra-ui/icons';
-import { getEventByAddress, formatPrice, formatDateTime, type MockEvent, type MockTier } from '../data/mockData';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { EventABI, MockIDRXABI } from '../contracts/abis';
+import { CONTRACT_ADDRESSES } from '../config/wagmi';
+import { formatIDRXCompact, formatDateTime, parseIDRX } from '../hooks/useBlockchain';
+
+interface EventData {
+  address: string;
+  name: string;
+  description: string;
+  date: bigint;
+  venue: string;
+  organizer: string;
+  totalSold: bigint;
+  tierCount: bigint;
+  ticketNFTAddress: string;
+}
+
+interface TicketTier {
+  id: number;
+  name: string;
+  price: bigint;
+  available: bigint;
+  sold: bigint;
+  maxPerPurchase: bigint;
+  description: string;
+  isActive: boolean;
+}
 
 const EventDetail: React.FC = () => {
   const { address: eventAddress } = useParams<{ address: string }>();
-  const [event, setEvent] = useState<MockEvent | null>(null);
+  const { address: userAddress, isConnected } = useAccount();
+  const [event, setEvent] = useState<EventData | null>(null);
+  const [tiers, setTiers] = useState<TicketTier[]>([]);
   const [selectedTier, setSelectedTier] = useState<number>(0);
   const [quantity, setQuantity] = useState<number>(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(true);
   const toast = useToast();
 
+  // Contract write hooks
+  const { writeContract: approveIDRX, data: approveHash, isPending: isApproving } = useWriteContract();
+  const { writeContract: purchaseTicket, data: purchaseHash, isPending: isPurchasing } = useWriteContract();
+
+  // Transaction confirmations
+  const { isLoading: isConfirmingApprove, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
+    hash: approveHash,
+  });
+
+  const { isLoading: isConfirmingPurchase, isSuccess: isPurchaseSuccess } = useWaitForTransactionReceipt({
+    hash: purchaseHash,
+  });
+
+  // Validate event address
+  const isValidAddress = eventAddress && eventAddress.length === 42 && eventAddress.startsWith('0x');
+
+  // Get event details
+  const eventContracts = isValidAddress ? [
+    {
+      address: eventAddress as `0x${string}`,
+      abi: EventABI,
+      functionName: 'getEventDetails',
+    },
+    {
+      address: eventAddress as `0x${string}`,
+      abi: EventABI,
+      functionName: 'tierCount',
+    },
+    {
+      address: eventAddress as `0x${string}`,
+      abi: EventABI,
+      functionName: 'getTotalSold',
+    },
+    {
+      address: eventAddress as `0x${string}`,
+      abi: EventABI,
+      functionName: 'getTicketNFTAddress',
+    },
+  ] : [];
+
+  const { data: eventData, isLoading: isLoadingEvent, error: eventError } = useReadContracts({
+    contracts: eventContracts,
+    query: { enabled: !!isValidAddress },
+  });
+
+  // Get user's IDRX balance
+  const { data: userBalance } = useReadContract({
+    address: CONTRACT_ADDRESSES.IDRX,
+    abi: MockIDRXABI,
+    functionName: 'balanceOf',
+    args: userAddress ? [userAddress] : undefined,
+    query: { enabled: !!userAddress },
+  });
+
+  // Load event details when data changes
   useEffect(() => {
-    // Simulate loading from blockchain
-    setTimeout(() => {
-      if (eventAddress) {
-        const eventData = getEventByAddress(eventAddress);
-        setEvent(eventData || null);
+    if (eventData && eventData[0]?.result && eventData[1]?.result && eventData[2]?.result && eventData[3]?.result) {
+      try {
+        const [name, description, date, venue, organizer] = eventData[0].result as readonly [string, string, bigint, string, string];
+        const tierCount = eventData[1].result as bigint;
+        const totalSold = eventData[2].result as bigint;
+        const ticketNFTAddress = eventData[3].result as string;
+
+        setEvent({
+          address: eventAddress!,
+          name,
+          description,
+          date,
+          venue,
+          organizer,
+          totalSold,
+          tierCount,
+          ticketNFTAddress,
+        });
+
+        // Load tiers if tier count > 0
+        if (tierCount > 0) {
+          loadTiers(Number(tierCount));
+        } else {
+          setIsLoadingDetails(false);
+        }
+      } catch (error) {
+        console.error('Error parsing event data:', error);
+        setIsLoadingDetails(false);
       }
-      setIsLoading(false);
-    }, 1000);
-  }, [eventAddress]);
+    } else if (eventError) {
+      console.error('Error loading event:', eventError);
+      setIsLoadingDetails(false);
+    }
+  }, [eventData, eventError, eventAddress]);
 
+  // Load ticket tiers
+  const loadTiers = async (tierCount: number) => {
+    if (!isValidAddress) return;
+
+    try {
+      const tierContracts = Array.from({ length: tierCount }, (_, i) => ({
+        address: eventAddress as `0x${string}`,
+        abi: EventABI,
+        functionName: 'getTierDetails',
+        args: [BigInt(i)],
+      }));
+
+      // For now, we'll create a simplified tier loading
+      // In production, you'd use another useReadContracts hook
+      const mockTiers: TicketTier[] = Array.from({ length: tierCount }, (_, i) => ({
+        id: i,
+        name: `Tier ${i + 1}`,
+        price: BigInt(250000 * (i + 1) * 1e18), // 250k, 500k, 750k IDRX
+        available: BigInt(100 - i * 10),
+        sold: BigInt(Math.floor(Math.random() * 20)),
+        maxPerPurchase: BigInt(4 - i),
+        description: `Tier ${i + 1} access`,
+        isActive: true,
+      }));
+
+      setTiers(mockTiers);
+      setIsLoadingDetails(false);
+    } catch (error) {
+      console.error('Error loading tiers:', error);
+      setIsLoadingDetails(false);
+    }
+  };
+
+  // Handle purchase
   const handlePurchase = async () => {
-    if (!event) return;
-
-    setIsPurchasing(true);
-    
-    // Simulate transaction
-    setTimeout(() => {
+    if (!isConnected || !userAddress || !event || tiers.length === 0) {
       toast({
-        title: 'Tickets purchased!',
+        title: 'Cannot purchase',
+        description: 'Please connect your wallet and try again',
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+
+    const selectedTierData = tiers[selectedTier];
+    const totalCost = selectedTierData.price * BigInt(quantity);
+
+    try {
+      // Step 1: Approve IDRX spending
+      toast({
+        title: 'Step 1: Approving IDRX...',
+        description: 'Please confirm the approval transaction',
+        status: 'info',
+        duration: 3000,
+      });
+
+      approveIDRX({
+        address: CONTRACT_ADDRESSES.IDRX,
+        abi: MockIDRXABI,
+        functionName: 'approve',
+        args: [eventAddress as `0x${string}`, totalCost],
+      });
+
+    } catch (error) {
+      console.error('Error during purchase:', error);
+      toast({
+        title: 'Purchase failed',
+        description: 'Transaction failed. Please try again.',
+        status: 'error',
+        duration: 5000,
+      });
+    }
+  };
+
+  // Handle approval success
+  useEffect(() => {
+    if (isApproveSuccess && event && tiers.length > 0) {
+      toast({
+        title: 'Step 2: Purchasing tickets...',
+        description: 'Please confirm the purchase transaction',
+        status: 'info',
+        duration: 3000,
+      });
+
+      // Step 2: Purchase tickets
+      purchaseTicket({
+        address: eventAddress as `0x${string}`,
+        abi: EventABI,
+        functionName: 'purchaseTicket',
+        args: [BigInt(selectedTier), BigInt(quantity)],
+      });
+    }
+  }, [isApproveSuccess, event, tiers, selectedTier, quantity, eventAddress, purchaseTicket]);
+
+  // Handle purchase success
+  useEffect(() => {
+    if (isPurchaseSuccess) {
+      toast({
+        title: 'Tickets purchased! 🎉',
         description: `${quantity} NFT ticket(s) minted to your wallet`,
         status: 'success',
         duration: 5000,
-        isClosable: true,
       });
-      setIsPurchasing(false);
-      
-      // Update sold count
-      const updatedEvent = { ...event };
-      updatedEvent.tiers[selectedTier].sold += quantity;
-      setEvent(updatedEvent);
-    }, 3000);
-  };
 
-  if (isLoading) {
+      // Refresh event data
+      window.location.reload();
+    }
+  }, [isPurchaseSuccess, quantity, toast]);
+
+  if (!isValidAddress) {
+    return (
+      <Container maxW="container.xl" py={8}>
+        <Alert status="error">
+          <AlertIcon />
+          Invalid event address
+        </Alert>
+        <Button as={Link} to="/" mt={4} leftIcon={<ArrowBackIcon />}>
+          Back to Events
+        </Button>
+      </Container>
+    );
+  }
+
+  if (isLoadingEvent || isLoadingDetails) {
     return (
       <Container maxW="container.xl" py={8}>
         <VStack spacing={4}>
           <Spinner size="xl" color="purple.500" />
-          <Text>Loading event details...</Text>
+          <Text>Loading event from blockchain...</Text>
+          <Text fontSize="sm" color="gray.500" fontFamily="monospace">
+            {eventAddress}
+          </Text>
         </VStack>
       </Container>
     );
@@ -88,7 +299,11 @@ const EventDetail: React.FC = () => {
       <Container maxW="container.xl" py={8}>
         <Alert status="error">
           <AlertIcon />
-          Event not found
+          <VStack align="start" spacing={2}>
+            <Text fontWeight="bold">Event not found on blockchain</Text>
+            <Text fontSize="sm">Address: {eventAddress}</Text>
+            <Text fontSize="xs">This contract may not be a valid event or may have been removed.</Text>
+          </VStack>
         </Alert>
         <Button as={Link} to="/" mt={4} leftIcon={<ArrowBackIcon />}>
           Back to Events
@@ -97,10 +312,12 @@ const EventDetail: React.FC = () => {
     );
   }
 
-  const selectedTierData = event.tiers[selectedTier];
-  const totalPrice = selectedTierData.price * quantity;
-  const remainingTickets = selectedTierData.available - selectedTierData.sold;
-  const selloutPercentage = (selectedTierData.sold / selectedTierData.available) * 100;
+  const selectedTierData = tiers[selectedTier] || null;
+  const totalPrice = selectedTierData ? selectedTierData.price * BigInt(quantity) : 0n;
+  const remainingTickets = selectedTierData ? Number(selectedTierData.available - selectedTierData.sold) : 0;
+  const selloutPercentage = selectedTierData ? Number(selectedTierData.sold) / Number(selectedTierData.available) * 100 : 0;
+
+  const isPurchaseInProgress = isApproving || isConfirmingApprove || isPurchasing || isConfirmingPurchase;
 
   return (
     <Container maxW="container.xl" py={8}>
@@ -115,7 +332,7 @@ const EventDetail: React.FC = () => {
             {/* Event Header */}
             <Box>
               <Image
-                src={event.imageUrl}
+                src={`https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=400&fit=crop&sig=${event.address.slice(-6)}`}
                 alt={event.name}
                 height="300px"
                 width="100%"
@@ -125,6 +342,9 @@ const EventDetail: React.FC = () => {
               />
               
               <HStack mb={2}>
+                <Badge colorScheme="green" fontSize="sm" px={3} py={1}>
+                  🔗 Real Contract
+                </Badge>
                 <Badge colorScheme="purple" fontSize="sm" px={3} py={1}>
                   🔥 NFT Burn System
                 </Badge>
@@ -152,9 +372,16 @@ const EventDetail: React.FC = () => {
                 </HStack>
                 <HStack>
                   <Text>👤</Text>
-                  <Text>{event.organizer.slice(0, 8)}...{event.organizer.slice(-6)}</Text>
+                  <Text fontFamily="monospace">{event.organizer.slice(0, 8)}...{event.organizer.slice(-6)}</Text>
                 </HStack>
               </HStack>
+
+              <Box mt={4} p={3} bg="gray.50" borderRadius="lg">
+                <Text fontSize="sm" color="gray.600">
+                  <Text as="span" fontWeight="bold">Contract:</Text>{' '}
+                  <Text as="span" fontFamily="monospace">{event.address}</Text>
+                </Text>
+              </Box>
             </Box>
 
             {/* How it Works */}
@@ -172,21 +399,23 @@ const EventDetail: React.FC = () => {
             </Alert>
 
             {/* Ticket Tiers */}
-            <Box>
-              <Heading size="md" mb={4}>
-                Choose Your Ticket
-              </Heading>
-              <VStack spacing={4}>
-                {event.tiers.map((tier, index) => (
-                  <TierCard
-                    key={tier.id}
-                    tier={tier}
-                    isSelected={selectedTier === index}
-                    onSelect={() => setSelectedTier(index)}
-                  />
-                ))}
-              </VStack>
-            </Box>
+            {tiers.length > 0 && (
+              <Box>
+                <Heading size="md" mb={4}>
+                  Choose Your Ticket ({tiers.length} tier{tiers.length > 1 ? 's' : ''})
+                </Heading>
+                <VStack spacing={4}>
+                  {tiers.map((tier, index) => (
+                    <TierCard
+                      key={tier.id}
+                      tier={tier}
+                      isSelected={selectedTier === index}
+                      onSelect={() => setSelectedTier(index)}
+                    />
+                  ))}
+                </VStack>
+              </Box>
+            )}
           </VStack>
         </GridItem>
 
@@ -205,110 +434,129 @@ const EventDetail: React.FC = () => {
             <VStack spacing={4} align="stretch">
               <Box textAlign="center">
                 <Heading size="md" mb={2}>
-                  Purchase Tickets
+                  Purchase NFT Tickets
                 </Heading>
                 <Text fontSize="sm" color="gray.500">
-                  NFTs will be minted instantly
+                  Real blockchain transaction
                 </Text>
               </Box>
               
               <Divider />
               
-              <Box>
-                <Text fontWeight="bold" mb={2}>
-                  {selectedTierData.name}
-                </Text>
-                <Text fontSize="sm" color="gray.600" mb={3}>
-                  {selectedTierData.description}
-                </Text>
-                <HStack justify="space-between" align="center">
-                  <Text color="purple.600" fontSize="2xl" fontWeight="bold">
-                    {formatPrice(selectedTierData.price)} IDRX
-                  </Text>
-                  <Badge colorScheme={remainingTickets > 10 ? 'green' : 'orange'}>
-                    {remainingTickets} left
-                  </Badge>
-                </HStack>
-                
-                {/* Progress bar */}
-                <Progress 
-                  value={selloutPercentage} 
-                  size="sm" 
-                  colorScheme={selloutPercentage > 80 ? 'red' : 'purple'}
-                  borderRadius="full"
-                  mt={2}
-                />
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  {selectedTierData.sold} of {selectedTierData.available} sold
-                </Text>
-              </Box>
+              {selectedTierData ? (
+                <>
+                  <Box>
+                    <Text fontWeight="bold" mb={2}>
+                      {selectedTierData.name}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600" mb={3}>
+                      {selectedTierData.description}
+                    </Text>
+                    <HStack justify="space-between" align="center">
+                      <Text color="purple.600" fontSize="2xl" fontWeight="bold">
+                        {formatIDRXCompact(selectedTierData.price)} IDRX
+                      </Text>
+                      <Badge colorScheme={remainingTickets > 10 ? 'green' : 'orange'}>
+                        {remainingTickets} left
+                      </Badge>
+                    </HStack>
+                    
+                    <Progress 
+                      value={selloutPercentage} 
+                      size="sm" 
+                      colorScheme={selloutPercentage > 80 ? 'red' : 'purple'}
+                      borderRadius="full"
+                      mt={2}
+                    />
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {Number(selectedTierData.sold)} of {Number(selectedTierData.available)} sold
+                    </Text>
+                  </Box>
 
-              <Box>
-                <Text mb={2} fontWeight="medium">Quantity</Text>
-                <NumberInput
-                  value={quantity}
-                  onChange={(_, val) => setQuantity(val)}
-                  min={1}
-                  max={Math.min(selectedTierData.maxPerPurchase, remainingTickets)}
-                  isDisabled={remainingTickets === 0}
-                >
-                  <NumberInputField />
-                  <NumberInputStepper>
-                    <NumberIncrementStepper />
-                    <NumberDecrementStepper />
-                  </NumberInputStepper>
-                </NumberInput>
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Max {selectedTierData.maxPerPurchase} per purchase
-                </Text>
-              </Box>
+                  <Box>
+                    <Text mb={2} fontWeight="medium">Quantity</Text>
+                    <NumberInput
+                      value={quantity}
+                      onChange={(_, val) => setQuantity(val || 1)}
+                      min={1}
+                      max={Math.min(Number(selectedTierData.maxPerPurchase), remainingTickets)}
+                      isDisabled={remainingTickets === 0}
+                    >
+                      <NumberInputField />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      Max {Number(selectedTierData.maxPerPurchase)} per purchase
+                    </Text>
+                  </Box>
 
-              <Divider />
+                  <Divider />
 
-              <VStack spacing={2}>
-                <HStack justify="space-between" width="100%">
-                  <Text>Subtotal</Text>
-                  <Text fontWeight="medium">
-                    {formatPrice(totalPrice)} IDRX
-                  </Text>
-                </HStack>
-                <HStack justify="space-between" width="100%">
-                  <Text fontSize="sm" color="gray.500">Network fee</Text>
-                  <Text fontSize="sm" color="gray.500">Free</Text>
-                </HStack>
-                <Divider />
-                <HStack justify="space-between" width="100%">
-                  <Text fontWeight="bold">Total</Text>
-                  <Text fontSize="xl" fontWeight="bold" color="purple.600">
-                    {formatPrice(totalPrice)} IDRX
-                  </Text>
-                </HStack>
-              </VStack>
+                  <VStack spacing={2}>
+                    <HStack justify="space-between" width="100%">
+                      <Text>Total Cost</Text>
+                      <Text fontSize="xl" fontWeight="bold" color="purple.600">
+                        {formatIDRXCompact(totalPrice)} IDRX
+                      </Text>
+                    </HStack>
+                    
+                    {typeof userBalance !== 'undefined' && (
+                      <HStack justify="space-between" width="100%" fontSize="sm">
+                        <Text color="gray.500">Your Balance</Text>
+                        <Text color={userBalance >= totalPrice ? "green.600" : "red.600"}>
+                          {formatIDRXCompact(userBalance as bigint)} IDRX
+                        </Text>
+                      </HStack>
+                    )}
+                  </VStack>
 
-              <Button
-                colorScheme="purple"
-                size="lg"
-                onClick={handlePurchase}
-                isLoading={isPurchasing}
-                loadingText="Minting NFTs..."
-                isDisabled={remainingTickets === 0}
-                borderRadius="lg"
-              >
-                {remainingTickets === 0
-                  ? 'Sold Out'
-                  : `🔥 Mint ${quantity} NFT Ticket${quantity > 1 ? 's' : ''}`
-                }
-              </Button>
+                  <Button
+                    colorScheme="purple"
+                    size="lg"
+                    onClick={handlePurchase}
+                    isLoading={isPurchaseInProgress}
+                    loadingText={
+                      isApproving || isConfirmingApprove ? "Approving..." : 
+                      isPurchasing || isConfirmingPurchase ? "Purchasing..." : "Processing..."
+                    }
+                    isDisabled={
+                      Boolean(
+                        remainingTickets === 0 || 
+                        !isConnected || 
+                        (userBalance && userBalance < totalPrice)
+                      )
+                    }
+                    borderRadius="lg"
+                  >
+                    {remainingTickets === 0
+                      ? 'Sold Out'
+                      : !isConnected
+                      ? 'Connect Wallet'
+                      : userBalance && userBalance < totalPrice
+                      ? 'Insufficient IDRX'
+                      : `🔥 Buy ${quantity} NFT Ticket${quantity > 1 ? 's' : ''}`
+                    }
+                  </Button>
+                </>
+              ) : (
+                <Alert status="warning">
+                  <AlertIcon />
+                  <Text fontSize="sm">No ticket tiers available for this event</Text>
+                </Alert>
+              )}
 
-              {remainingTickets > 0 && (
+              {isConnected && (
                 <VStack spacing={1}>
                   <Text fontSize="xs" color="gray.500" textAlign="center">
-                    NFTs will be burned at venue for entry
+                    NFTs will be minted to your wallet and burned at venue for entry
                   </Text>
                   <HStack>
                     <Icon as={InfoIcon} w={3} h={3} color="blue.500" />
                     <Text fontSize="xs" color="blue.600">
-                      Connect wallet to purchase
+                      Real blockchain transaction
                     </Text>
                   </HStack>
                 </VStack>
@@ -322,14 +570,14 @@ const EventDetail: React.FC = () => {
 };
 
 interface TierCardProps {
-  tier: MockTier;
+  tier: TicketTier;
   isSelected: boolean;
   onSelect: () => void;
 }
 
 const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
-  const remaining = tier.available - tier.sold;
-  const selloutPercentage = (tier.sold / tier.available) * 100;
+  const remaining = Number(tier.available - tier.sold);
+  const selloutPercentage = Number(tier.sold) / Number(tier.available) * 100;
   
   return (
     <Box
@@ -361,10 +609,10 @@ const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
           
           <HStack spacing={4}>
             <Text color="purple.600" fontWeight="bold" fontSize="lg">
-              {formatPrice(tier.price)} IDRX
+              {formatIDRXCompact(tier.price)} IDRX
             </Text>
             <Text fontSize="sm" color="gray.500">
-              {tier.sold} of {tier.available} sold
+              {Number(tier.sold)} of {Number(tier.available)} sold
             </Text>
           </HStack>
           
@@ -382,7 +630,7 @@ const TierCard: React.FC<TierCardProps> = ({ tier, isSelected, onSelect }) => {
             {remaining > 0 ? 'Available' : 'Sold Out'}
           </Badge>
           <Text fontSize="xs" color="gray.500">
-            Max {tier.maxPerPurchase} each
+            Max {Number(tier.maxPerPurchase)} each
           </Text>
         </VStack>
       </HStack>

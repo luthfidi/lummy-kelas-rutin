@@ -1,5 +1,5 @@
 // src/components/Navbar.tsx
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -9,25 +9,25 @@ import {
   HStack,
   Button,
   Text,
-  useDisclosure,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalCloseButton,
   VStack,
   Badge,
   useToast,
 } from '@chakra-ui/react';
+import { useAccount, useConnect, useDisconnect, useChainId } from 'wagmi';
+import { injected, walletConnect } from 'wagmi/connectors';
+import { useUserRole, useIDRXBalance, formatIDRXCompact } from '../hooks/useBlockchain';
 
 const Navbar: React.FC = () => {
   const location = useLocation();
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const [isConnected, setIsConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
-  const [balance, setBalance] = useState('1,250');
+  const chainId = useChainId();
+  const { address, isConnected, isConnecting } = useAccount();
+  const { connect } = useConnect();
+  const { disconnect } = useDisconnect();
   const toast = useToast();
+
+  // Get user role and IDRX balance
+  const userRole = useUserRole();
+  const { data: balance } = useIDRXBalance();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -35,30 +35,59 @@ const Navbar: React.FC = () => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
-  const handleConnect = () => {
-    // Simulate wallet connection
-    setTimeout(() => {
-      const mockAddress = '0x742d35Cc6634C0532925a3b8D2C5DEB4C12345678';
-      setWalletAddress(mockAddress);
-      setIsConnected(true);
-      setBalance('1,250');
+  const getNetworkName = (chainId: number) => {
+    switch (chainId) {
+      case 31337:
+        return 'Anvil Local';
+      case 4202:
+        return 'Lisk Sepolia';
+      default:
+        return `Chain ${chainId}`;
+    }
+  };
+
+  const getRoleColor = (role: string | null) => {
+    switch (role) {
+      case 'admin':
+        return 'red';
+      case 'organizer':
+        return 'blue';
+      case 'staff':
+        return 'orange';
+      case 'buyer':
+        return 'green';
+      default:
+        return 'gray';
+    }
+  };
+
+  const handleConnect = async (connectorType: 'injected' | 'walletConnect') => {
+    try {
+      const connector = connectorType === 'injected' ? injected() : walletConnect({
+        projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'd2fcae952e3bd7b4e51fb295883cacdf',
+      });
+      
+      await connect({ connector });
       
       toast({
         title: 'Wallet Connected!',
-        description: `Connected to ${formatAddress(mockAddress)}`,
+        description: 'Successfully connected to blockchain',
         status: 'success',
         duration: 3000,
       });
-      
-      onClose();
-    }, 1000);
+    } catch (error) {
+      console.error('Connection error:', error);
+      toast({
+        title: 'Connection Failed',
+        description: 'Failed to connect wallet. Please try again.',
+        status: 'error',
+        duration: 3000,
+      });
+    }
   };
 
   const handleDisconnect = () => {
-    setIsConnected(false);
-    setWalletAddress('');
-    setBalance('0');
-    
+    disconnect();
     toast({
       title: 'Wallet Disconnected',
       status: 'info',
@@ -100,6 +129,7 @@ const Navbar: React.FC = () => {
                 🏠 Events
               </Text>
             </Link>
+            
             <Link to="/tickets">
               <Text
                 fontWeight={isActive('/tickets') ? 'bold' : 'medium'}
@@ -110,39 +140,89 @@ const Navbar: React.FC = () => {
                 🎫 My Tickets
               </Text>
             </Link>
-            <Link to="/create">
-              <Text
-                fontWeight={isActive('/create') ? 'bold' : 'medium'}
-                color={isActive('/create') ? 'purple.600' : 'gray.600'}
-                _hover={{ color: 'purple.600' }}
-                transition="color 0.2s"
-              >
-                ➕ Create Event
-              </Text>
-            </Link>
+            
+            {/* Role-based navigation */}
+            {userRole === 'organizer' && (
+              <Link to="/create">
+                <Text
+                  fontWeight={isActive('/create') ? 'bold' : 'medium'}
+                  color={isActive('/create') ? 'purple.600' : 'gray.600'}
+                  _hover={{ color: 'purple.600' }}
+                  transition="color 0.2s"
+                >
+                  ➕ Create Event
+                </Text>
+              </Link>
+            )}
+            
+            {userRole === 'staff' && (
+              <Link to="/scanner">
+                <Text
+                  fontWeight={isActive('/scanner') ? 'bold' : 'medium'}
+                  color={isActive('/scanner') ? 'purple.600' : 'gray.600'}
+                  _hover={{ color: 'purple.600' }}
+                  transition="color 0.2s"
+                >
+                  🔍 Scanner
+                </Text>
+              </Link>
+            )}
+            
+            {userRole === 'admin' && (
+              <Link to="/admin">
+                <Text
+                  fontWeight={isActive('/admin') ? 'bold' : 'medium'}
+                  color={isActive('/admin') ? 'purple.600' : 'gray.600'}
+                  _hover={{ color: 'purple.600' }}
+                  transition="color 0.2s"
+                >
+                  🔑 Admin
+                </Text>
+              </Link>
+            )}
           </HStack>
 
           {/* Wallet Section */}
-          {isConnected && walletAddress ? (
+          {isConnected && address ? (
             <HStack spacing={3}>
               <VStack spacing={0} align="end">
-                <HStack>
-                  <Badge colorScheme="green" variant="subtle" borderRadius="full">
+                <HStack spacing={2}>
+                  <Badge 
+                    colorScheme="green" 
+                    variant="subtle" 
+                    borderRadius="full"
+                    fontSize="xs"
+                  >
                     🟢 Connected
                   </Badge>
+                  
+                  {userRole && (
+                    <Badge 
+                      colorScheme={getRoleColor(userRole)} 
+                      variant="solid" 
+                      borderRadius="full"
+                      fontSize="xs"
+                      textTransform="capitalize"
+                    >
+                      {userRole}
+                    </Badge>
+                  )}
+                  
                   <Text fontSize="sm" fontWeight="bold" fontFamily="monospace">
-                    {formatAddress(walletAddress)}
+                    {formatAddress(address)}
                   </Text>
                 </HStack>
-                <HStack>
+                
+                <HStack spacing={2}>
                   <Text fontSize="xs" color="blue.600" fontWeight="medium">
-                    {balance} IDRX
+                    {balance ? formatIDRXCompact(balance) : '0'} IDRX
                   </Text>
                   <Text fontSize="xs" color="gray.500">
-                    • Lisk Sepolia
+                    • {getNetworkName(chainId)}
                   </Text>
                 </HStack>
               </VStack>
+              
               <Button 
                 size="sm" 
                 variant="outline" 
@@ -153,84 +233,52 @@ const Navbar: React.FC = () => {
               </Button>
             </HStack>
           ) : (
-            <Button 
-              colorScheme="purple" 
-              onClick={onOpen}
-              leftIcon={<Text>🔗</Text>}
-              borderRadius="full"
-              px={6}
-            >
-              Connect Wallet
-            </Button>
+            <HStack spacing={2}>
+              {isConnecting && (
+                <Text fontSize="sm" color="gray.500">
+                  Connecting...
+                </Text>
+              )}
+              
+              <Button 
+                colorScheme="purple" 
+                onClick={() => handleConnect('injected')}
+                leftIcon={<Text>🦊</Text>}
+                borderRadius="full"
+                px={6}
+                isLoading={isConnecting}
+                loadingText="Connecting..."
+              >
+                Connect Wallet
+              </Button>
+              
+              <Button 
+                variant="outline"
+                colorScheme="purple" 
+                onClick={() => handleConnect('walletConnect')}
+                leftIcon={<Text>🔗</Text>}
+                borderRadius="full"
+                px={4}
+                isLoading={isConnecting}
+                size="md"
+              >
+                WC
+              </Button>
+            </HStack>
           )}
         </Flex>
       </Container>
 
-      {/* Wallet Connect Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} isCentered>
-        <ModalOverlay backdropFilter="blur(4px)" />
-        <ModalContent>
-          <ModalHeader textAlign="center">
-            <VStack spacing={2}>
-              <Text fontSize="2xl">🔗</Text>
-              <Text>Connect Wallet</Text>
-            </VStack>
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody pb={6}>
-            <VStack spacing={4}>
-              <Text color="gray.600" textAlign="center" fontSize="sm">
-                Connect your wallet to purchase NFT tickets and participate in the burn system
-              </Text>
-              
-              {/* Mock wallet options */}
-              <VStack spacing={3} width="100%">
-                <Button
-                  onClick={handleConnect}
-                  width="100%"
-                  variant="outline"
-                  leftIcon={<Text>🦊</Text>}
-                  _hover={{ bg: 'orange.50', borderColor: 'orange.300' }}
-                >
-                  MetaMask
-                </Button>
-                
-                <Button
-                  onClick={handleConnect}
-                  width="100%"
-                  variant="outline"
-                  leftIcon={<Text>🔗</Text>}
-                  _hover={{ bg: 'blue.50', borderColor: 'blue.300' }}
-                >
-                  WalletConnect
-                </Button>
-                
-                <Button
-                  onClick={handleConnect}
-                  width="100%"
-                  variant="outline"
-                  leftIcon={<Text>🌟</Text>}
-                  _hover={{ bg: 'purple.50', borderColor: 'purple.300' }}
-                >
-                  Xellar Wallet
-                </Button>
-              </VStack>
-              
-              <Box bg="blue.50" p={4} borderRadius="lg" width="100%">
-                <VStack spacing={2}>
-                  <Text fontWeight="bold" color="blue.800" fontSize="sm">
-                    🔥 NFT Burn System
-                  </Text>
-                  <Text color="blue.700" fontSize="xs" textAlign="center">
-                    Your tickets are NFTs that get permanently destroyed when used at venues.
-                    This eliminates duplicates and ensures 100% authenticity.
-                  </Text>
-                </VStack>
-              </Box>
-            </VStack>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
+      {/* Network Warning */}
+      {isConnected && chainId !== 31337 && chainId !== 4202 && (
+        <Box bg="orange.100" py={2}>
+          <Container maxW="container.xl">
+            <Text fontSize="sm" color="orange.800" textAlign="center">
+              ⚠️ Unsupported network. Please switch to Anvil Local (31337) or Lisk Sepolia (4202)
+            </Text>
+          </Container>
+        </Box>
+      )}
     </Box>
   );
 };
